@@ -1,0 +1,35 @@
+:root {
+    --bg: #f4f7f6; --panel-bg: #ffffff; --text: #333; --border: #ddd; --primary: #007bff;
+    --pin-fixed: #dc3545; --pin-strapping: #ffc107; --pin-used: #6c757d; --pin-free: #28a745;
+}
+body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; gap: 20px; height: 100vh; box-sizing: border-box; }
+.sidebar { width: 320px; background: var(--panel-bg); padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow-y: auto; display: flex; flex-direction: column; }
+.main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
+.panel { background: var(--panel-bg); padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+h2 { font-size: 1.1rem; margin-top: 0; border-bottom: 2px solid var(--border); padding-bottom: 10px; }
+select, button { width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; }
+button { background: var(--primary); color: white; cursor: pointer; border: none; font-weight: bold; transition: 0.2s; }
+button:hover { background: #0056b3; }
+button.btn-danger { background: #dc3545; }
+button.btn-danger:hover { background: #c82333; }
+button.btn-success { background: #28a745; }
+
+/* 引脚网格 */
+.pin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(85px, 1fr)); gap: 10px; }
+.pin { padding: 8px; border-radius: 6px; text-align: center; font-size: 12px; font-weight: bold; color: white; cursor: pointer; transition: transform 0.1s; position: relative;}
+.pin:hover { transform: scale(1.05); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+.pin .io-num { font-size: 14px; margin-bottom: 4px; }
+.pin .pin-label { font-size: 10px; font-weight: normal; opacity: 0.9; word-break: break-all;}
+.pin.fixed { background-color: var(--pin-fixed); cursor: not-allowed; }
+.pin.strapping { background-color: var(--pin-strapping); color: #333; }
+.pin.used { background-color: var(--pin-used); }
+.pin.free { background-color: var(--pin-free); }
+
+.connection-list { margin-top: 15px; }
+.connection-item { display: flex; align-items: center; padding: 8px; border: 1px dashed var(--border); margin-bottom: 5px; border-radius: 4px; background: #fafafa; }
+.connection-item strong { min-width: 100px; color: var(--primary); }
+pre { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 6px; overflow-x: auto; font-family: monospace; font-size: 13px; }
+.legend { display: flex; gap: 15px; margin-bottom: 15px; font-size: 12px; }
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.color-box { width: 15px; height: 15px; border-radius: 3px; }
+.module-tag { padding: 8px; margin-bottom: 5px; background: #e9ecef; border-radius: 4px; font-size: 13px; display: flex; justify-content: space-between;}

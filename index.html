@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>ESP32-S3 引脚智能配置系统</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- 左侧控制栏 -->
+    <div class="sidebar">
+        <h2 id="board-title">加载中...</h2>
+        <select id="module-select">
+            <option value="">-- 选择外设模组 --</option>
+        </select>
+        <button onclick="addModule()">智能分配引脚</button>
+
+        <hr style="border:0; border-top:1px solid var(--border); margin: 20px 0;">
+        
+        <h2>已接入模组</h2>
+        <div id="active-modules-list" style="flex:1;">
+            <p style="color:#888; font-size:12px; text-align:center;">暂无模组</p>
+        </div>
+        <button class="btn-danger" onclick="resetAll()">重置全部</button>
+
+        <hr style="border:0; border-top:1px solid var(--border); margin: 20px 0;">
+        <h2>导出配置</h2>
+        <button class="btn-success" onclick="exportConfig()">导出 JSON 配置</button>
+        <button class="btn-success" onclick="exportCHeader()" style="margin-top:10px; background:#17a2b8;">生成 C 语言头文件</button>
+    </div>
+
+    <!-- 右侧主内容区 -->
+    <div class="main-content">
+        <div class="panel">
+            <h2>主控引脚状态 (点击灰色引脚可强制释放)</h2>
+            <div class="legend">
+                <div class="legend-item"><div class="color-box" style="background:var(--pin-fixed);"></div>固定/系统占用</div>
+                <div class="legend-item"><div class="color-box" style="background:var(--pin-strapping);"></div>Strapping(启动敏感)</div>
+                <div class="legend-item"><div class="color-box" style="background:var(--pin-used);"></div>用户已占用</div>
+                <div class="legend-item"><div class="color-box" style="background:var(--pin-free);"></div>空闲可用</div>
+            </div>
+            <div class="pin-grid" id="pin-grid"></div>
+        </div>
+
+        <div class="panel" id="wiring-panel" style="display: none;">
+            <h2>接线指导 (供焊接工程师)</h2>
+            <div class="connection-list" id="connection-list"></div>
+        </div>
+
+        <div class="panel" id="code-panel" style="display: none;">
+            <h2>软件配置预览</h2>
+            <pre id="code-preview"></pre>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

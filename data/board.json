@@ -1,0 +1,11 @@
+{
+  "boardName": "ESP32-S3-WROOM-1 N16R8",
+  "description": "已屏蔽内部 Flash/PSRAM 占用引脚 (35-37) 及固定系统引脚",
+  "fixedPins": [1, 2, 3, 13, 14, 19, 20, 31, 32, 33, 34, 35, 36, 37, 41],
+  "strappingPins": [0, 3, 45, 46],
+  "availableGpios": [4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18, 21, 38, 39, 40, 42, 43, 44, 45, 46, 47, 48],
+  "defaultInterfaces": {
+    "I2C": { "SDA": 8, "SCL": 9 },
+    "SPI": { "MOSI": 11, "MISO": 13, "SCK": 12, "CS": 10 }
+  }
+}
