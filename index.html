@@ -7,29 +7,24 @@
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <!-- 左侧控制栏 -->
     <div class="sidebar">
         <h2 id="board-title">加载中...</h2>
         <select id="module-select">
             <option value="">-- 选择外设模组 --</option>
         </select>
         <button onclick="addModule()">智能分配引脚</button>
-
         <hr style="border:0; border-top:1px solid var(--border); margin: 20px 0;">
-        
         <h2>已接入模组</h2>
         <div id="active-modules-list" style="flex:1;">
             <p style="color:#888; font-size:12px; text-align:center;">暂无模组</p>
         </div>
         <button class="btn-danger" onclick="resetAll()">重置全部</button>
-
         <hr style="border:0; border-top:1px solid var(--border); margin: 20px 0;">
         <h2>导出配置</h2>
         <button class="btn-success" onclick="exportConfig()">导出 JSON 配置</button>
         <button class="btn-success" onclick="exportCHeader()" style="margin-top:10px; background:#17a2b8;">生成 C 语言头文件</button>
     </div>
 
-    <!-- 右侧主内容区 -->
     <div class="main-content">
         <div class="panel">
             <h2>主控引脚状态 (点击灰色引脚可强制释放)</h2>
@@ -53,7 +48,6 @@
         </div>
     </div>
 
-    <!-- 新增：协商弹窗遮罩 -->
     <div id="negotiation-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 1000; justify-content: center; align-items: center;">
         <div style="background: white; padding: 25px; border-radius: 8px; width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
             <h3 style="margin-top: 0; color: #dc3545;">⚠️ 引脚资源不足</h3>
@@ -69,7 +63,10 @@
         </div>
     </div>
 
-    <script src="js/app.js"></script>
+    <!-- 顺序极其重要：先加载数据，再加载引擎，最后加载主逻辑 -->
+    <script src="data/board.js"></script>
+    <script src="data/modules.js"></script>
     <script src="js/diagnostics.js"></script>
+    <script src="js/app.js"></script>
 </body>
 </html>
