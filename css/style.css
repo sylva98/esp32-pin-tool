@@ -33,3 +33,35 @@ pre { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 6px; ov
 .legend-item { display: flex; align-items: center; gap: 5px; }
 .color-box { width: 15px; height: 15px; border-radius: 3px; }
 .module-tag { padding: 8px; margin-bottom: 5px; background: #e9ecef; border-radius: 4px; font-size: 13px; display: flex; justify-content: space-between;}
+/* --- 新增：诊断警告样式 --- */
+
+/* 严重冲突 (红色闪烁) */
+.pin.diagnostic-error {
+    background-color: var(--pin-fixed) !important;
+    box-shadow: 0 0 10px #dc3545, inset 0 0 10px #ff0000;
+    animation: pulse-red 1.5s infinite;
+    border: 2px solid #fff;
+}
+
+/* 潜在风险 (黄色/橙色闪烁) */
+.pin.diagnostic-warning {
+    background-color: #fd7e14 !important; /* 更醒目的橙色，区别于普通 strapping 黄色 */
+    box-shadow: 0 0 10px #fd7e14;
+    animation: pulse-orange 1.5s infinite;
+    border: 2px solid #fff;
+    color: white !important;
+}
+
+/* 悬浮时的 tooltip 提示 (通过 title 属性即可) */
+
+@keyframes pulse-red {
+    0% { transform: scale(1); box-shadow: 0 0 5px #dc3545; }
+    50% { transform: scale(1.05); box-shadow: 0 0 20px #dc3545, 0 0 10px #ff0000 inset; }
+    100% { transform: scale(1); box-shadow: 0 0 5px #dc3545; }
+}
+
+@keyframes pulse-orange {
+    0% { transform: scale(1); box-shadow: 0 0 5px #fd7e14; }
+    50% { transform: scale(1.05); box-shadow: 0 0 20px #fd7e14; }
+    100% { transform: scale(1); box-shadow: 0 0 5px #fd7e14; }
+}
