@@ -1,6 +1,7 @@
 window.globalModuleData = {
     "i2c_oled": {
         "name": "0.96寸 OLED (I2C)", "interface": "I2C", "signal_voltage": 3.3,
+        "peak_current_ma": 20, // 新增
         "requirements": [
             { "signal": "SDA", "count": 1, "optional": false, "internal_pull": "up" },
             { "signal": "SCL", "count": 1, "optional": false, "internal_pull": "up" }
@@ -8,6 +9,7 @@ window.globalModuleData = {
     },
     "spi_tft": {
         "name": "SPI TFT 屏幕", "interface": "SPI", "signal_voltage": 3.3,
+        "peak_current_ma": 120, // 新增（带背光）
         "requirements": [
             { "signal": "MOSI", "count": 1, "optional": false }, { "signal": "SCK", "count": 1, "optional": false },
             { "signal": "CS", "count": 1, "optional": false }, { "signal": "DC", "count": 1, "optional": false },
@@ -16,10 +18,12 @@ window.globalModuleData = {
     },
     "dht11": {
         "name": "DHT11 温湿度传感器", "interface": "GPIO", "signal_voltage": 3.3,
+        "peak_current_ma": 5, // 新增
         "requirements": [{ "signal": "DATA", "count": 1, "optional": false }]
     },
     "ov2640": {
         "name": "OV2640 摄像头 (DVP)", "interface": "DVP", "signal_voltage": 3.3,
+        "peak_current_ma": 200, // 新增
         "requirements": [
             { "signal": "SDA", "count": 1, "optional": false }, { "signal": "SCL", "count": 1, "optional": false },
             { "signal": "XCLK", "count": 1, "optional": false }, { "signal": "PCLK", "count": 1, "optional": false },
@@ -30,6 +34,7 @@ window.globalModuleData = {
     },
     "relay_5v": {
         "name": "5V 继电器模块", "interface": "GPIO", "signal_voltage": 5,
+        "peak_current_ma": 70, // 新增
         "requirements": [{ "signal": "IN", "count": 1, "optional": false, "internal_pull": "down" }]
     }
 };
