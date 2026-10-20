@@ -20,7 +20,9 @@ button.btn-success { background: #28a745; }
 .pin:hover { transform: scale(1.05); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
 .pin .io-num { font-size: 14px; margin-bottom: 4px; }
 .pin .pin-label { font-size: 10px; font-weight: normal; opacity: 0.9; word-break: break-all;}
-.pin.fixed { background-color: var(--pin-fixed); cursor: not-allowed; }
+
+/* 基础状态颜色 */
+.pin.fixed { background-color: #a0a0a0 !important; color: #fff; border: 1px solid #888; cursor: not-allowed; }
 .pin.strapping { background-color: var(--pin-strapping); color: #333; }
 .pin.used { background-color: var(--pin-used); }
 .pin.free { background-color: var(--pin-free); }
@@ -33,35 +35,73 @@ pre { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 6px; ov
 .legend-item { display: flex; align-items: center; gap: 5px; }
 .color-box { width: 15px; height: 15px; border-radius: 3px; }
 .module-tag { padding: 8px; margin-bottom: 5px; background: #e9ecef; border-radius: 4px; font-size: 13px; display: flex; justify-content: space-between;}
-/* --- 新增：诊断警告样式 --- */
 
-/* 严重冲突 (红色闪烁) */
+/* --- 诊断警告与提示框样式 --- */
+
+/* 严重冲突 (红色高亮闪烁) */
 .pin.diagnostic-error {
-    background-color: var(--pin-fixed) !important;
-    box-shadow: 0 0 10px #dc3545, inset 0 0 10px #ff0000;
-    animation: pulse-red 1.5s infinite;
+    background-color: #dc3545 !important;
+    box-shadow: 0 0 15px #dc3545, inset 0 0 10px #ff0000;
+    animation: pulse-red 1s infinite; /* 加快闪烁频率 */
     border: 2px solid #fff;
+    z-index: 10;
 }
 
-/* 潜在风险 (黄色/橙色闪烁) */
+/* 潜在风险 (黄色/橙色高亮闪烁) */
 .pin.diagnostic-warning {
-    background-color: #fd7e14 !important; /* 更醒目的橙色，区别于普通 strapping 黄色 */
-    box-shadow: 0 0 10px #fd7e14;
-    animation: pulse-orange 1.5s infinite;
+    background-color: #fd7e14 !important;
+    box-shadow: 0 0 15px #fd7e14;
+    animation: pulse-orange 1s infinite;
     border: 2px solid #fff;
     color: white !important;
+    z-index: 10;
 }
 
-/* 悬浮时的 tooltip 提示 (通过 title 属性即可) */
+/* 自定义悬浮提示框 Tooltip */
+.pin[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 110%;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    width: max-content;
+    max-width: 250px;
+    text-align: left;
+    z-index: 100;
+    pointer-events: none;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.2);
+}
+
+/* 悬浮提示框的小三角箭头 */
+.pin[data-tooltip]:hover::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 6px;
+    border-style: solid;
+    border-color: rgba(0, 0, 0, 0.85) transparent transparent transparent;
+    z-index: 100;
+    pointer-events: none;
+}
 
 @keyframes pulse-red {
     0% { transform: scale(1); box-shadow: 0 0 5px #dc3545; }
-    50% { transform: scale(1.05); box-shadow: 0 0 20px #dc3545, 0 0 10px #ff0000 inset; }
+    50% { transform: scale(1.05); box-shadow: 0 0 25px #dc3545, 0 0 10px #ff0000 inset; }
     100% { transform: scale(1); box-shadow: 0 0 5px #dc3545; }
 }
 
 @keyframes pulse-orange {
     0% { transform: scale(1); box-shadow: 0 0 5px #fd7e14; }
-    50% { transform: scale(1.05); box-shadow: 0 0 20px #fd7e14; }
+    50% { transform: scale(1.05); box-shadow: 0 0 25px #fd7e14; }
     100% { transform: scale(1); box-shadow: 0 0 5px #fd7e14; }
 }
