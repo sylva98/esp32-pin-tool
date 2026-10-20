@@ -191,29 +191,24 @@ function renderModules() {
 // ==========================================
 // 4. 智能分配与协商核心逻辑
 // ==========================================
-
-// 尝试分配逻辑抽取（返回成功分配的计划和失败的必选、可选引脚）
 function tryAllocate(modData, pinsStateCopy) {
-    let allocations = {}; // 记录当前尝试的分配结果
+    let allocations = {}; 
     let assignedPins = []; 
     let missingRequired = [];
     let missingOptional = [];
 
-    // 排序：先分配必选，再分配可选，保证核心总线绝对能抢到资源
     let reqs = [...modData.requirements].sort((a, b) => a.optional === b.optional ? 0 : a.optional ? 1 : -1);
 
     for (const req of reqs) {
         let pinsToAllocate = req.count;
         let allocated = [];
         
-        // 1. 复用总线
         if (modData.interface && activeBuses[modData.interface] && activeBuses[modData.interface][req.signal]) {
             const existingPin = activeBuses[modData.interface][req.signal];
             allocated.push(existingPin);
             pinsToAllocate--;
         }
 
-        // 2. 默认引脚
         if (pinsToAllocate > 0 && modData.interface && boardConfig.defaultInterfaces[modData.interface]) {
             const defaultPins = boardConfig.defaultInterfaces[modData.interface];
             if (defaultPins[req.signal] && pinsStateCopy[defaultPins[req.signal]] === 'free' && !allocated.includes(defaultPins[req.signal])) {
@@ -222,7 +217,6 @@ function tryAllocate(modData, pinsStateCopy) {
             }
         }
 
-        // 3. 推荐引脚
         if (pinsToAllocate > 0 && modData.preferredPins) {
             for (const p of modData.preferredPins) {
                 if (pinsToAllocate <= 0) break;
@@ -233,7 +227,6 @@ function tryAllocate(modData, pinsStateCopy) {
             }
         }
 
-        // 4. 兜底
         if (pinsToAllocate > 0) {
             for (let i = 0; i <= 48; i++) {
                 if (pinsToAllocate <= 0) break;
@@ -244,13 +237,11 @@ function tryAllocate(modData, pinsStateCopy) {
             }
         }
 
-        // 记录结果
         if (pinsToAllocate > 0) {
             if (req.optional) missingOptional.push(req.signal);
             else missingRequired.push(req.signal);
         } else {
             allocations[req.signal] = allocated;
-            // 模拟占用
             allocated.forEach(p => { pinsStateCopy[p] = 'used'; });
             assignedPins.push(...allocated);
         }
@@ -264,9 +255,15 @@ function addModule() {
     const modId = select.value;
     if (!modId) return alert('请先选择模组');
 
+    // 防御性拦截：检查当前是否已经添加过该模组
+    const existing = activeModules.find(m => m.id === modId);
+    if (existing) {
+        const confirmAdd = confirm(`你已经添加了【${moduleLibrary[modId].name}】。\n如果继续添加，可能会导致引脚严重冲突。\n确定要强行添加第二个吗？`);
+        if (!confirmAdd) return;
+    }
+
     const modData = moduleLibrary[modId];
     
-    // 复制一份当前引脚状态用于沙盘推演
     let pinsStateCopy = {};
     for (let i = 0; i <= 48; i++) {
         if(pinsState[i]) pinsStateCopy[i] = pinsState[i].state;
@@ -274,30 +271,25 @@ function addModule() {
 
     const result = tryAllocate(modData, pinsStateCopy);
 
-    // 情况 A：必选引脚都不够，直接报错
     if (result.missingRequired.length > 0) {
         alert(`引脚严重不足！无法满足核心必选信号 (${result.missingRequired.join(', ')})，请先释放其他引脚。`);
         return;
     }
 
-    // 情况 B：完美分配（甚至可选引脚也够了）
     if (result.missingOptional.length === 0) {
         commitAllocation(modId, result.allocations);
         return;
     }
 
-    // 情况 C：可选引脚不够，触发协商弹窗
     pendingModule = { id: modId, allocations: result.allocations };
-    pendingOptionalDrops = result.missingOptional; // 记录哪些可选引脚分不到了
+    pendingOptionalDrops = result.missingOptional; 
     
-    // 渲染弹窗 UI
     const optionsDiv = document.getElementById('negotiation-options');
     optionsDiv.innerHTML = '';
     result.missingOptional.forEach(signal => {
         const label = document.createElement('label');
         label.style.display = 'block';
         label.style.marginBottom = '5px';
-        // 默认勾选（同意放弃）
         label.innerHTML = `<input type="checkbox" value="${signal}" checked> 放弃 ${signal} 引脚 (余量不足)`;
         optionsDiv.appendChild(label);
     });
@@ -314,18 +306,14 @@ function cancelNegotiation() {
 function confirmNegotiation() {
     document.getElementById('negotiation-modal').style.display = 'none';
     
-    // 读取用户勾选的放弃项
     const checkboxes = document.querySelectorAll('#negotiation-options input[type="checkbox"]:checked');
     const confirmedDrops = Array.from(checkboxes).map(cb => cb.value);
 
-    // 将用户同意放弃的引脚标记为 "dropped"
     const finalAllocations = { ...pendingModule.allocations };
     confirmedDrops.forEach(signal => {
         finalAllocations[signal] = "dropped"; 
     });
 
-    // 把那些分不到的，但用户又死活不想放弃的（取消了勾选）找出来
-    // 如果用户取消了勾选，但引脚确实不够，我们只能强行标记 dropped，并提示
     const stubbornSignals = pendingOptionalDrops.filter(s => !confirmedDrops.includes(s));
     if (stubbornSignals.length > 0) {
         stubbornSignals.forEach(sig => finalAllocations[sig] = "dropped");
@@ -347,12 +335,10 @@ function commitAllocation(modId, allocations) {
         } else {
             newConnections[signal] = pins.length > 1 ? pins.join(',') : pins[0];
             
-            // 真正在全局状态中占用引脚
             pins.forEach(p => {
                 pinsState[p] = { state: 'used', owner: modId, signal: signal };
             });
             
-            // 记录总线
             if (modData.interface && (signal === 'SDA' || signal === 'SCL' || signal === 'MOSI' || signal === 'MISO' || signal === 'SCK')) {
                 if (!activeBuses[modData.interface]) activeBuses[modData.interface] = {};
                 activeBuses[modData.interface][signal] = Number(pins[0]);
