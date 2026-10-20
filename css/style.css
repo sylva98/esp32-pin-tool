@@ -5,7 +5,7 @@
 body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; gap: 20px; height: 100vh; box-sizing: border-box; }
 .sidebar { width: 320px; background: var(--panel-bg); padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow-y: auto; display: flex; flex-direction: column; }
 .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
-.panel { background: var(--panel-bg); padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+.panel { background: var(--panel-bg); padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); position: relative; }
 h2 { font-size: 1.1rem; margin-top: 0; border-bottom: 2px solid var(--border); padding-bottom: 10px; }
 select, button { width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; }
 button { background: var(--primary); color: white; cursor: pointer; border: none; font-weight: bold; transition: 0.2s; }
@@ -17,6 +17,10 @@ button.btn-success { background: #28a745; }
 /* 引脚网格 */
 .pin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(85px, 1fr)); gap: 10px; }
 .pin { padding: 8px; border-radius: 6px; text-align: center; font-size: 12px; font-weight: bold; color: white; cursor: pointer; transition: transform 0.1s; position: relative;}
+
+/* 禁用原生 title 提示，避免冲突 */
+.pin { pointer-events: auto; }
+
 .pin:hover { transform: scale(1.05); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
 .pin .io-num { font-size: 14px; margin-bottom: 4px; }
 .pin .pin-label { font-size: 10px; font-weight: normal; opacity: 0.9; word-break: break-all;}
@@ -36,9 +40,7 @@ pre { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 6px; ov
 .color-box { width: 15px; height: 15px; border-radius: 3px; }
 .module-tag { padding: 8px; margin-bottom: 5px; background: #e9ecef; border-radius: 4px; font-size: 13px; display: flex; justify-content: space-between;}
 
-/* --- 诊断警告与提示框样式 --- */
-
-/* 严重冲突 (红色高亮闪烁) */
+/* --- 诊断警告样式 --- */
 .pin.diagnostic-error {
     background-color: #dc3545 !important;
     box-shadow: 0 0 15px #dc3545, inset 0 0 10px #ff0000;
@@ -47,7 +49,6 @@ pre { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 6px; ov
     z-index: 10;
 }
 
-/* 潜在风险 (黄色/橙色高亮闪烁) */
 .pin.diagnostic-warning {
     background-color: #fd7e14 !important;
     box-shadow: 0 0 15px #fd7e14;
@@ -55,43 +56,6 @@ pre { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 6px; ov
     border: 2px solid #fff;
     color: white !important;
     z-index: 10;
-}
-
-/* 自定义悬浮提示框 Tooltip (修复被遮挡的问题) */
-.pin[data-tooltip]:hover::after {
-    content: attr(data-tooltip);
-    position: absolute;
-    top: 110%; /* 改为在下方显示，防止向上超出边界 */
-    left: 50%;
-    transform: translateX(-50%);
-    background-color: rgba(0, 0, 0, 0.9);
-    color: #fff;
-    padding: 8px 12px;
-    border-radius: 6px;
-    font-size: 12px;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    width: max-content;
-    max-width: 250px;
-    text-align: left;
-    z-index: 9999; /* 提升层级，绝对置顶 */
-    pointer-events: none;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-    border: 1px solid rgba(255,255,255,0.2);
-}
-
-/* 悬浮提示框的小三角箭头 */
-.pin[data-tooltip]:hover::before {
-    content: '';
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    border-width: 6px;
-    border-style: solid;
-    border-color: transparent transparent rgba(0, 0, 0, 0.9) transparent;
-    z-index: 9999;
-    pointer-events: none;
 }
 
 @keyframes pulse-red {
@@ -104,4 +68,26 @@ pre { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 6px; ov
     0% { transform: scale(1); box-shadow: 0 0 5px #fd7e14; }
     50% { transform: scale(1.05); box-shadow: 0 0 25px #fd7e14; }
     100% { transform: scale(1); box-shadow: 0 0 5px #fd7e14; }
+}
+
+/* 新增：全局绝对定位的 Tooltip */
+#global-tooltip {
+    position: fixed;
+    display: none;
+    background-color: rgba(0, 0, 0, 0.9);
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    width: max-content;
+    max-width: 250px;
+    text-align: left;
+    z-index: 99999; /* 极致置顶 */
+    pointer-events: none;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.2);
+    transform: translate(-50%, -100%); /* 默认显示在上方居中 */
+    margin-top: -10px; /* 留出一点缝隙 */
 }
