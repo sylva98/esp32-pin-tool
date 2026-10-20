@@ -3,28 +3,39 @@
     "name": "0.96寸 OLED (I2C)",
     "interface": "I2C",
     "requirements": [
-      { "signal": "SDA", "count": 1 },
-      { "signal": "SCL", "count": 1 }
+      { "signal": "SDA", "count": 1, "optional": false },
+      { "signal": "SCL", "count": 1, "optional": false }
+    ]
+  },
+  "spi_tft": {
+    "name": "SPI TFT 屏幕",
+    "interface": "SPI",
+    "requirements": [
+      { "signal": "MOSI", "count": 1, "optional": false },
+      { "signal": "SCK", "count": 1, "optional": false },
+      { "signal": "CS", "count": 1, "optional": false },
+      { "signal": "DC", "count": 1, "optional": false },
+      { "signal": "RST", "count": 1, "optional": true }
     ]
   },
   "dht11": {
     "name": "DHT11 温湿度传感器",
     "interface": "GPIO",
     "requirements": [
-      { "signal": "DATA", "count": 1 }
+      { "signal": "DATA", "count": 1, "optional": false }
     ]
   },
   "ov2640": {
     "name": "OV2640 摄像头 (DVP)",
     "interface": "DVP",
     "requirements": [
-      { "signal": "SDA", "count": 1 },
-      { "signal": "SCL", "count": 1 },
-      { "signal": "XCLK", "count": 1 },
-      { "signal": "PCLK", "count": 1 },
-      { "signal": "VSYNC", "count": 1 },
-      { "signal": "HREF", "count": 1 },
-      { "signal": "D0-D7", "count": 8 }
+      { "signal": "SDA", "count": 1, "optional": false },
+      { "signal": "SCL", "count": 1, "optional": false },
+      { "signal": "XCLK", "count": 1, "optional": false },
+      { "signal": "PCLK", "count": 1, "optional": false },
+      { "signal": "VSYNC", "count": 1, "optional": false },
+      { "signal": "HREF", "count": 1, "optional": false },
+      { "signal": "D0-D7", "count": 8, "optional": false }
     ],
     "preferredPins": [4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18]
   }
