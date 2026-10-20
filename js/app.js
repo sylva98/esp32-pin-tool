@@ -6,7 +6,6 @@ let moduleLibrary = null;
 let pinsState = {}; 
 let activeModules = []; 
 let activeBuses = { I2C: {}, SPI: {} }; 
-
 let pendingModule = null; 
 let pendingOptionalDrops = []; 
 
@@ -32,7 +31,6 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
         console.error(error);
         document.getElementById('board-title').innerText = "❌ 初始化失败";
-        alert("初始化失败：" + error.message);
     }
 });
 
@@ -168,6 +166,12 @@ function renderModules() {
     list.innerHTML = '';
     wiringList.innerHTML = '';
     
+    // 添加静默防呆的提示语
+    const smartTip = document.createElement('div');
+    smartTip.style.cssText = "font-size:12px; color:#28a745; margin-bottom:15px; background:#e8f5e9; padding:8px; border-radius:4px;";
+    smartTip.innerHTML = `💡 <strong>智能避雷生效</strong>：系统已在后台自动过滤“5V烧板风险”、“启动引脚上下拉冲突”及“特殊电压域限制”。`;
+    wiringList.appendChild(smartTip);
+
     activeModules.forEach((mod, index) => {
         const modDiv = document.createElement('div');
         modDiv.className = 'module-tag';
@@ -205,24 +209,21 @@ function renderModules() {
 }
 
 // ==========================================
-// 4. 智能分配与协商 (核心修复区)
+// 4. 静默防呆核心分配引擎
 // ==========================================
 function tryAllocate(modData, pinsStateCopy) {
     let allocations = {}; 
     let missingRequired = [];
     let missingOptional = [];
-    
-    // 记录当前模组已经抢到的引脚，用于全局防重
     let pinsAllocatedInThisMod = []; 
 
-    // 排序：先必选，后可选
     let reqs = [...modData.requirements].sort((a, b) => a.optional === b.optional ? 0 : a.optional ? 1 : -1);
 
     for (const req of reqs) {
         let pinsToAllocate = req.count;
         let allocated = [];
         
-        // 策略 1: 总线复用 (必须检查该引脚是否已经被本模组的其他信号占用)
+        // 策略 1: 总线复用
         if (modData.interface && activeBuses[modData.interface] && activeBuses[modData.interface][req.signal]) {
             const existingPin = activeBuses[modData.interface][req.signal];
             if (!pinsAllocatedInThisMod.includes(existingPin)) {
@@ -236,18 +237,18 @@ function tryAllocate(modData, pinsStateCopy) {
         if (pinsToAllocate > 0 && modData.interface && boardConfig.defaultInterfaces[modData.interface]) {
             const defaultPins = boardConfig.defaultInterfaces[modData.interface];
             const dp = defaultPins[req.signal];
-            if (dp !== undefined && pinsStateCopy[dp] === 'free' && !pinsAllocatedInThisMod.includes(dp)) {
+            if (dp !== undefined && pinsStateCopy[dp] === 'free' && !pinsAllocatedInThisMod.includes(dp) && isSafePin(dp, modData, req)) {
                 allocated.push(dp);
                 pinsAllocatedInThisMod.push(dp);
                 pinsToAllocate--;
             }
         }
 
-        // 策略 3: 模组专属推荐引脚
+        // 策略 3: 推荐引脚
         if (pinsToAllocate > 0 && modData.preferredPins) {
             for (const p of modData.preferredPins) {
                 if (pinsToAllocate <= 0) break;
-                if (pinsStateCopy[p] === 'free' && !pinsAllocatedInThisMod.includes(p)) {
+                if (pinsStateCopy[p] === 'free' && !pinsAllocatedInThisMod.includes(p) && isSafePin(p, modData, req)) {
                     allocated.push(p);
                     pinsAllocatedInThisMod.push(p);
                     pinsToAllocate--;
@@ -255,21 +256,11 @@ function tryAllocate(modData, pinsStateCopy) {
             }
         }
 
-        // 策略 4: 兜底寻找 (核心修复：过滤掉被占用的、已被当前模组占用的，并优先避开 Strapping 引脚)
+        // 策略 4: 兜底寻找 (带静默防呆过滤)
         if (pinsToAllocate > 0) {
-            // 先找安全的空闲引脚
             for (let i = 0; i <= 48; i++) {
                 if (pinsToAllocate <= 0) break;
-                if (pinsStateCopy[i] === 'free' && !pinsAllocatedInThisMod.includes(i) && !boardConfig.strappingPins.includes(i)) {
-                    allocated.push(i);
-                    pinsAllocatedInThisMod.push(i);
-                    pinsToAllocate--;
-                }
-            }
-            // 如果实在不够了，只能去动用 Strapping 引脚了
-            for (let i = 0; i <= 48; i++) {
-                if (pinsToAllocate <= 0) break;
-                if (pinsStateCopy[i] === 'free' && !pinsAllocatedInThisMod.includes(i)) {
+                if (pinsStateCopy[i] === 'free' && !pinsAllocatedInThisMod.includes(i) && isSafePin(i, modData, req)) {
                     allocated.push(i);
                     pinsAllocatedInThisMod.push(i);
                     pinsToAllocate--;
@@ -282,7 +273,6 @@ function tryAllocate(modData, pinsStateCopy) {
             else missingRequired.push(req.signal);
         } else {
             allocations[req.signal] = allocated;
-            // 立刻在沙盘推演状态里把分配出去的引脚标记为 used，防止后续循环抢走
             allocated.forEach(p => { pinsStateCopy[p] = 'used'; });
         }
     }
@@ -290,12 +280,34 @@ function tryAllocate(modData, pinsStateCopy) {
     return { allocations, missingRequired, missingOptional };
 }
 
+// 核心防呆判定函数 (静默过滤)
+function isSafePin(pin, modData, req) {
+    // 1. 过滤电压域冲突 (如果主控指定了特殊域，且模组电平不匹配)
+    if (boardConfig.special_domains && boardConfig.special_domains[pin]) {
+        if (boardConfig.special_domains[pin] !== `${modData.signal_voltage}V`) return false;
+    }
+
+    // 2. 过滤 5V 烧板风险 (如果模组是 5V，主控电源没有 5V，且引脚默认 3.3V)
+    if (modData.signal_voltage > boardConfig.safe_voltage) {
+        if (!boardConfig.power_rails["5V"]) {
+            return false; // 系统不提供 5V，强行接 3.3V 会烧
+        }
+    }
+
+    // 3. 过滤 Strapping 上下拉陷阱
+    if (boardConfig.strappingPins.includes(pin) && req.internal_pull) {
+        return false; // 如果模组自带上下拉，且引脚是启动敏感脚，直接避开
+    }
+
+    return true;
+}
+
 function addModule() {
     const modId = document.getElementById('module-select').value;
     if (!modId) return alert('请先选择模组');
     
     const existing = activeModules.find(m => m.id === modId);
-    if (existing && !confirm(`你已经添加了【${moduleLibrary[modId].name}】。\n强行添加可能会导致引脚严重冲突，确定继续吗？`)) return;
+    if (existing && !confirm(`已经添加了【${moduleLibrary[modId].name}】。\n强行添加可能会导致冲突，确定继续吗？`)) return;
 
     const modData = moduleLibrary[modId];
     
@@ -305,7 +317,7 @@ function addModule() {
     const result = tryAllocate(modData, pinsStateCopy);
 
     if (result.missingRequired.length > 0) {
-        alert(`引脚严重不足！无法满足核心必选信号 (${result.missingRequired.join(', ')})。\n请先释放其他引脚，或减少模组数量。`);
+        alert(`引脚严重不足或存在电气冲突！\n无法满足核心必选信号 (${result.missingRequired.join(', ')})。\n系统已为您拦截了不安全的引脚。请先释放其他引脚或检查供电。`);
         return;
     }
     
@@ -314,7 +326,6 @@ function addModule() {
         return;
     }
 
-    // 触发协商弹窗
     pendingModule = { id: modId, allocations: result.allocations };
     pendingOptionalDrops = result.missingOptional; 
     
@@ -405,7 +416,7 @@ function resetAll() {
 }
 
 // ==========================================
-// 5. 导出与代码生成
+// 5. 导出与代码生成 (无改动)
 // ==========================================
 function generateCodePreview() {
     let code = `/*\n * 自动生成\n * 平台: ${boardConfig.boardName}\n */\n\n#ifndef PIN_CONFIG_H\n#define PIN_CONFIG_H\n\n`;
