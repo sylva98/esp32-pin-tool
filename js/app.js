@@ -7,52 +7,23 @@ let pinsState = {};
 let activeModules = []; 
 let activeBuses = { I2C: {}, SPI: {} }; 
 
-// 用于协商弹窗的暂存状态
 let pendingModule = null; 
 let pendingOptionalDrops = []; 
 
 // ==========================================
-// 2. 通用数据加载器 (绕过 fetch 的 CSP 限制)
+// 2. 初始化
 // ==========================================
-function loadJSON(url) {
-    return new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', url);
-        xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-                try {
-                    resolve(JSON.parse(xhr.responseText));
-                } catch (e) {
-                    reject(new Error("JSON 格式解析失败: " + url));
-                }
-            } else {
-                reject(new Error(`加载失败: ${url}, 状态码: ${xhr.status}`));
-            }
-        };
-        xhr.onerror = () => reject(new Error("网络请求错误: " + url));
-        xhr.send();
-    });
-}
-
-// ==========================================
-// 3. 初始化
-// ==========================================
-document.addEventListener('DOMContentLoaded', async () => {
+document.addEventListener('DOMContentLoaded', () => {
     try {
-        const [boardData, moduleData] = await Promise.all([
-            loadJSON('./data/board.json'),
-            loadJSON('./data/modules.json')
-        ]);
-        
-        boardConfig = boardData;
-        moduleLibrary = moduleData;
+        boardConfig = globalBoardData;
+        moduleLibrary = globalModuleData;
         
         document.getElementById('board-title').innerText = boardConfig.boardName;
         initPins();
         populateModuleSelect();
         
         if (typeof initDiagnosticsEngine === 'function') {
-            await initDiagnosticsEngine();
+            initDiagnosticsEngine(); 
         }
 
         renderPins();
@@ -60,10 +31,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         
     } catch (error) {
         console.error(error);
-        document.getElementById('board-title').innerText = "❌ 数据加载失败";
-        document.getElementById('board-title').style.color = "#dc3545";
-        document.getElementById('active-modules-list').innerHTML = `<p style="color:#dc3545; font-size:12px;">错误: ${error.message}</p>`;
-        alert("数据加载失败：" + error.message + "\n请确保 data 文件夹和 index.html 在同级目录下。");
+        document.getElementById('board-title').innerText = "❌ 初始化失败";
+        alert("初始化失败：" + error.message);
     }
 });
 
@@ -92,13 +61,12 @@ function populateModuleSelect() {
 }
 
 // ==========================================
-// 4. 渲染逻辑
+// 3. 渲染逻辑
 // ==========================================
 function renderPins() {
     const grid = document.getElementById('pin-grid');
     grid.innerHTML = '';
     
-    // 创建全局 Tooltip 元素
     let globalTooltip = document.getElementById('global-tooltip');
     if (!globalTooltip) {
         globalTooltip = document.createElement('div');
@@ -162,16 +130,13 @@ function renderPins() {
              labelHtml += `<div style="position:absolute; top:2px; right:2px; font-size:14px;">${errorObj ? '❌' : '⚠️'}</div>`;
         }
 
-        // 绑定悬浮提示框事件
         div.onmouseenter = () => {
             if (!tooltipText) return;
             globalTooltip.textContent = tooltipText;
             globalTooltip.style.display = 'block';
-            
             const rect = div.getBoundingClientRect();
             globalTooltip.style.left = `${rect.left + rect.width / 2}px`;
             globalTooltip.style.top = `${rect.top}px`;
-            
             if (rect.top < 100) {
                 globalTooltip.style.transform = 'translate(-50%, 0)';
                 globalTooltip.style.marginTop = '15px';
@@ -180,10 +145,7 @@ function renderPins() {
                 globalTooltip.style.marginTop = '-10px';
             }
         };
-        
-        div.onmouseleave = () => {
-            globalTooltip.style.display = 'none';
-        };
+        div.onmouseleave = () => { globalTooltip.style.display = 'none'; };
 
         div.innerHTML = labelHtml;
         grid.appendChild(div);
@@ -243,49 +205,73 @@ function renderModules() {
 }
 
 // ==========================================
-// 5. 智能分配与协商核心逻辑
+// 4. 智能分配与协商 (核心修复区)
 // ==========================================
 function tryAllocate(modData, pinsStateCopy) {
     let allocations = {}; 
-    let assignedPins = []; 
     let missingRequired = [];
     let missingOptional = [];
+    
+    // 记录当前模组已经抢到的引脚，用于全局防重
+    let pinsAllocatedInThisMod = []; 
 
+    // 排序：先必选，后可选
     let reqs = [...modData.requirements].sort((a, b) => a.optional === b.optional ? 0 : a.optional ? 1 : -1);
 
     for (const req of reqs) {
         let pinsToAllocate = req.count;
         let allocated = [];
         
+        // 策略 1: 总线复用 (必须检查该引脚是否已经被本模组的其他信号占用)
         if (modData.interface && activeBuses[modData.interface] && activeBuses[modData.interface][req.signal]) {
             const existingPin = activeBuses[modData.interface][req.signal];
-            allocated.push(existingPin);
-            pinsToAllocate--;
-        }
-
-        if (pinsToAllocate > 0 && modData.interface && boardConfig.defaultInterfaces[modData.interface]) {
-            const defaultPins = boardConfig.defaultInterfaces[modData.interface];
-            if (defaultPins[req.signal] && pinsStateCopy[defaultPins[req.signal]] === 'free' && !allocated.includes(defaultPins[req.signal])) {
-                allocated.push(defaultPins[req.signal]);
+            if (!pinsAllocatedInThisMod.includes(existingPin)) {
+                allocated.push(existingPin);
+                pinsAllocatedInThisMod.push(existingPin);
                 pinsToAllocate--;
             }
         }
 
+        // 策略 2: 默认引脚推荐
+        if (pinsToAllocate > 0 && modData.interface && boardConfig.defaultInterfaces[modData.interface]) {
+            const defaultPins = boardConfig.defaultInterfaces[modData.interface];
+            const dp = defaultPins[req.signal];
+            if (dp !== undefined && pinsStateCopy[dp] === 'free' && !pinsAllocatedInThisMod.includes(dp)) {
+                allocated.push(dp);
+                pinsAllocatedInThisMod.push(dp);
+                pinsToAllocate--;
+            }
+        }
+
+        // 策略 3: 模组专属推荐引脚
         if (pinsToAllocate > 0 && modData.preferredPins) {
             for (const p of modData.preferredPins) {
                 if (pinsToAllocate <= 0) break;
-                if (pinsStateCopy[p] === 'free' && !allocated.includes(p)) {
+                if (pinsStateCopy[p] === 'free' && !pinsAllocatedInThisMod.includes(p)) {
                     allocated.push(p);
+                    pinsAllocatedInThisMod.push(p);
                     pinsToAllocate--;
                 }
             }
         }
 
+        // 策略 4: 兜底寻找 (核心修复：过滤掉被占用的、已被当前模组占用的，并优先避开 Strapping 引脚)
         if (pinsToAllocate > 0) {
+            // 先找安全的空闲引脚
             for (let i = 0; i <= 48; i++) {
                 if (pinsToAllocate <= 0) break;
-                if (pinsStateCopy[i] === 'free') {
+                if (pinsStateCopy[i] === 'free' && !pinsAllocatedInThisMod.includes(i) && !boardConfig.strappingPins.includes(i)) {
                     allocated.push(i);
+                    pinsAllocatedInThisMod.push(i);
+                    pinsToAllocate--;
+                }
+            }
+            // 如果实在不够了，只能去动用 Strapping 引脚了
+            for (let i = 0; i <= 48; i++) {
+                if (pinsToAllocate <= 0) break;
+                if (pinsStateCopy[i] === 'free' && !pinsAllocatedInThisMod.includes(i)) {
+                    allocated.push(i);
+                    pinsAllocatedInThisMod.push(i);
                     pinsToAllocate--;
                 }
             }
@@ -296,8 +282,8 @@ function tryAllocate(modData, pinsStateCopy) {
             else missingRequired.push(req.signal);
         } else {
             allocations[req.signal] = allocated;
+            // 立刻在沙盘推演状态里把分配出去的引脚标记为 used，防止后续循环抢走
             allocated.forEach(p => { pinsStateCopy[p] = 'used'; });
-            assignedPins.push(...allocated);
         }
     }
 
@@ -305,35 +291,30 @@ function tryAllocate(modData, pinsStateCopy) {
 }
 
 function addModule() {
-    const select = document.getElementById('module-select');
-    const modId = select.value;
+    const modId = document.getElementById('module-select').value;
     if (!modId) return alert('请先选择模组');
-
+    
     const existing = activeModules.find(m => m.id === modId);
-    if (existing) {
-        const confirmAdd = confirm(`你已经添加了【${moduleLibrary[modId].name}】。\n如果继续添加，可能会导致引脚严重冲突。\n确定要强行添加第二个吗？`);
-        if (!confirmAdd) return;
-    }
+    if (existing && !confirm(`你已经添加了【${moduleLibrary[modId].name}】。\n强行添加可能会导致引脚严重冲突，确定继续吗？`)) return;
 
     const modData = moduleLibrary[modId];
     
     let pinsStateCopy = {};
-    for (let i = 0; i <= 48; i++) {
-        if(pinsState[i]) pinsStateCopy[i] = pinsState[i].state;
-    }
+    for (let i = 0; i <= 48; i++) { if(pinsState[i]) pinsStateCopy[i] = pinsState[i].state; }
 
     const result = tryAllocate(modData, pinsStateCopy);
 
     if (result.missingRequired.length > 0) {
-        alert(`引脚严重不足！无法满足核心必选信号 (${result.missingRequired.join(', ')})，请先释放其他引脚。`);
+        alert(`引脚严重不足！无法满足核心必选信号 (${result.missingRequired.join(', ')})。\n请先释放其他引脚，或减少模组数量。`);
         return;
     }
-
+    
     if (result.missingOptional.length === 0) {
         commitAllocation(modId, result.allocations);
         return;
     }
 
+    // 触发协商弹窗
     pendingModule = { id: modId, allocations: result.allocations };
     pendingOptionalDrops = result.missingOptional; 
     
@@ -346,84 +327,59 @@ function addModule() {
         label.innerHTML = `<input type="checkbox" value="${signal}" checked> 放弃 ${signal} 引脚 (余量不足)`;
         optionsDiv.appendChild(label);
     });
-    
     document.getElementById('negotiation-modal').style.display = 'flex';
 }
 
 function cancelNegotiation() {
     document.getElementById('negotiation-modal').style.display = 'none';
     pendingModule = null;
-    pendingOptionalDrops = [];
 }
 
 function confirmNegotiation() {
     document.getElementById('negotiation-modal').style.display = 'none';
-    
     const checkboxes = document.querySelectorAll('#negotiation-options input[type="checkbox"]:checked');
     const confirmedDrops = Array.from(checkboxes).map(cb => cb.value);
 
     const finalAllocations = { ...pendingModule.allocations };
-    confirmedDrops.forEach(signal => {
-        finalAllocations[signal] = "dropped"; 
-    });
-
+    confirmedDrops.forEach(signal => { finalAllocations[signal] = "dropped"; });
+    
     const stubbornSignals = pendingOptionalDrops.filter(s => !confirmedDrops.includes(s));
     if (stubbornSignals.length > 0) {
         stubbornSignals.forEach(sig => finalAllocations[sig] = "dropped");
-        alert(`注意：因为引脚确实不够，${stubbornSignals.join(', ')} 依然无法分配。`);
     }
-
     commitAllocation(pendingModule.id, finalAllocations);
     pendingModule = null;
-    pendingOptionalDrops = [];
 }
 
 function commitAllocation(modId, allocations) {
     const modData = moduleLibrary[modId];
     const newConnections = {};
-
     for (const [signal, pins] of Object.entries(allocations)) {
         if (pins === "dropped") {
             newConnections[signal] = "dropped";
         } else {
             newConnections[signal] = pins.length > 1 ? pins.join(',') : pins[0];
-            
-            pins.forEach(p => {
-                pinsState[p] = { state: 'used', owner: modId, signal: signal };
-            });
-            
+            pins.forEach(p => { pinsState[p] = { state: 'used', owner: modId, signal: signal }; });
             if (modData.interface && (signal === 'SDA' || signal === 'SCL' || signal === 'MOSI' || signal === 'MISO' || signal === 'SCK')) {
                 if (!activeBuses[modData.interface]) activeBuses[modData.interface] = {};
                 activeBuses[modData.interface][signal] = Number(pins[0]);
             }
         }
     }
-
-    activeModules.push({ 
-        id: modId, 
-        interface: modData.interface, 
-        connections: newConnections 
-    });
-    
+    activeModules.push({ id: modId, interface: modData.interface, connections: newConnections });
     renderPins();
     renderModules();
 }
 
 function releasePin(pinNum) {
-    const pin = pinsState[pinNum];
-    if (pin.state !== 'used') return;
-    
+    if (pinsState[pinNum].state !== 'used') return;
     if(confirm(`确定要强制释放 GPIO ${pinNum} 吗？对应的模组将被移除。`)) {
-        const ownerId = pin.owner;
-        const modIndex = activeModules.findIndex(m => 
-            m.id === ownerId && Object.values(m.connections).some(val => String(val).split(',').includes(String(pinNum)))
-        );
-
+        const ownerId = pinsState[pinNum].owner;
+        const modIndex = activeModules.findIndex(m => m.id === ownerId && Object.values(m.connections).some(val => String(val).split(',').includes(String(pinNum))));
         if (modIndex > -1) {
             activeModules.splice(modIndex, 1);
             activeBuses = { I2C: {}, SPI: {} };
             initPins();
-            
             activeModules.forEach(mod => {
                 for (const [signal, pinStr] of Object.entries(mod.connections)) {
                     if (pinStr === "dropped") continue;
@@ -443,111 +399,75 @@ function releasePin(pinNum) {
 
 function resetAll() {
     if(confirm('确定要清空所有配置吗？')) {
-        activeModules = [];
-        activeBuses = { I2C: {}, SPI: {} };
-        initPins();
-        renderPins();
-        renderModules();
+        activeModules = []; activeBuses = { I2C: {}, SPI: {} };
+        initPins(); renderPins(); renderModules();
     }
 }
 
 // ==========================================
-// 6. 导出功能
+// 5. 导出与代码生成
 // ==========================================
 function generateCodePreview() {
-    const pre = document.getElementById('code-preview');
-    let code = `/*\n * 自动生成的引脚配置头文件\n * 目标平台: ${boardConfig.boardName}\n * 生成时间: ${new Date().toLocaleString()}\n */\n\n#ifndef PIN_CONFIG_H\n#define PIN_CONFIG_H\n\n`;
-
+    let code = `/*\n * 自动生成\n * 平台: ${boardConfig.boardName}\n */\n\n#ifndef PIN_CONFIG_H\n#define PIN_CONFIG_H\n\n`;
     let hasI2C = false, hasSPI = false;
-    activeModules.forEach(mod => {
-        if (mod.interface === 'I2C') hasI2C = true;
-        if (mod.interface === 'SPI') hasSPI = true;
-    });
+    activeModules.forEach(mod => { if (mod.interface === 'I2C') hasI2C = true; if (mod.interface === 'SPI') hasSPI = true; });
 
     if (hasI2C) {
-        code += `/* --- I2C Bus Configuration --- */\n`;
+        code += `/* --- I2C Bus --- */\n`;
         const i2cMod = activeModules.find(m => m.interface === 'I2C');
-        if (i2cMod && i2cMod.connections['SDA'] && i2cMod.connections['SDA'] !== "dropped") code += `#define I2C_MASTER_SDA_IO  ${i2cMod.connections['SDA']}\n`;
-        if (i2cMod && i2cMod.connections['SCL'] && i2cMod.connections['SCL'] !== "dropped") code += `#define I2C_MASTER_SCL_IO  ${i2cMod.connections['SCL']}\n`;
-        code += `\n`;
+        if (i2cMod?.connections['SDA'] && i2cMod.connections['SDA'] !== "dropped") code += `#define I2C_MASTER_SDA_IO  ${i2cMod.connections['SDA']}\n`;
+        if (i2cMod?.connections['SCL'] && i2cMod.connections['SCL'] !== "dropped") code += `#define I2C_MASTER_SCL_IO  ${i2cMod.connections['SCL']}\n\n`;
     }
-
     if (hasSPI) {
-        code += `/* --- SPI Bus Configuration --- */\n`;
+        code += `/* --- SPI Bus --- */\n`;
         const spiMod = activeModules.find(m => m.interface === 'SPI');
         ['MOSI', 'MISO', 'SCK', 'CS'].forEach(sig => {
-            if (spiMod && spiMod.connections[sig] && spiMod.connections[sig] !== "dropped") {
-                code += `#define SPI_MASTER_${sig}_IO  ${spiMod.connections[sig]}\n`;
-            }
+            if (spiMod?.connections[sig] && spiMod.connections[sig] !== "dropped") code += `#define SPI_MASTER_${sig}_IO  ${spiMod.connections[sig]}\n`;
         });
         code += `\n`;
     }
-
     activeModules.forEach((mod) => {
         const modData = moduleLibrary[mod.id];
         const specificSignals = Object.keys(mod.connections).filter(sig => 
-            !(mod.interface === 'I2C' && ['SDA', 'SCL'].includes(sig)) &&
-            !(mod.interface === 'SPI' && ['MOSI', 'MISO', 'SCK', 'CS'].includes(sig))
+            !(mod.interface === 'I2C' && ['SDA', 'SCL'].includes(sig)) && !(mod.interface === 'SPI' && ['MOSI', 'MISO', 'SCK', 'CS'].includes(sig))
         );
-
         if (specificSignals.length > 0) {
             code += `/* --- ${modData.name} --- */\n`;
             specificSignals.forEach(sig => {
                 const pinStr = mod.connections[sig];
                 const prefix = mod.id.toUpperCase();
-                
-                if (pinStr === "dropped") {
-                    code += `// #define ${prefix}_${sig}  (未连接，请在代码中通过软件处理)\n`;
-                } else if (String(pinStr).includes(',')) {
-                    String(pinStr).split(',').forEach((p, i) => {
-                        code += `#define ${prefix}_${sig}_${i}  ${p}\n`;
-                    });
-                } else {
-                    code += `#define ${prefix}_${sig}  ${pinStr}\n`;
-                }
+                if (pinStr === "dropped") code += `// #define ${prefix}_${sig}  (未连接)\n`;
+                else if (String(pinStr).includes(',')) String(pinStr).split(',').forEach((p, i) => { code += `#define ${prefix}_${sig}_${i}  ${p}\n`; });
+                else code += `#define ${prefix}_${sig}  ${pinStr}\n`;
             });
             code += `\n`;
         }
     });
-
-    code += `#endif // PIN_CONFIG_H\n`;
-    pre.textContent = code;
+    code += `#endif\n`;
+    document.getElementById('code-preview').textContent = code;
     document.getElementById('code-panel').style.display = 'block';
 }
 
-function exportConfig() {
-    downloadFile("esp32s3_config.json", JSON.stringify(activeModules, null, 2));
-}
-
-function exportCHeader() {
-    downloadFile("pin_config.h", document.getElementById('code-preview').textContent);
-}
-
+function exportConfig() { downloadFile("esp32s3_config.json", JSON.stringify(activeModules, null, 2)); }
+function exportCHeader() { downloadFile("pin_config.h", document.getElementById('code-preview').textContent); }
 function downloadFile(filename, content) {
-    const element = document.createElement('a');
-    element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(content));
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
+    const a = document.createElement('a');
+    a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(content);
+    a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
-// ==========================================
-// 7. 导入配置文件
-// ==========================================
 function importConfig(event) {
     const file = event.target.files[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (e) => {
         try {
             const importedData = JSON.parse(e.target.result);
-            if (!Array.isArray(importedData)) throw new Error("配置文件格式不正确");
-
+            if (!Array.isArray(importedData)) throw new Error("格式错误");
             activeModules = [];
             activeBuses = { I2C: {}, SPI: {} };
             initPins();
-
             importedData.forEach(mod => {
                 if (moduleLibrary[mod.id]) {
                     activeModules.push(mod);
@@ -555,9 +475,7 @@ function importConfig(event) {
                         if (pinStr === "dropped") continue;
                         String(pinStr).split(',').forEach(p => {
                             const pinNum = Number(p);
-                            if (pinsState[pinNum]) {
-                                pinsState[pinNum] = { state: 'used', owner: mod.id, signal: signal };
-                            }
+                            if (pinsState[pinNum]) pinsState[pinNum] = { state: 'used', owner: mod.id, signal: signal };
                             if (mod.interface && ['SDA', 'SCL', 'MOSI', 'MISO', 'SCK'].includes(signal)) {
                                 if (!activeBuses[mod.interface]) activeBuses[mod.interface] = {};
                                 activeBuses[mod.interface][signal] = pinNum;
@@ -566,14 +484,10 @@ function importConfig(event) {
                     }
                 }
             });
-
             renderPins();
             renderModules();
-            alert("配置导入成功！");
-
         } catch (error) {
-            console.error(error);
-            alert("解析配置文件失败！");
+            alert("导入失败！");
         }
         event.target.value = ''; 
     };
