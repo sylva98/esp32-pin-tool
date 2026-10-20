@@ -42,7 +42,7 @@ pre { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 6px; ov
 .pin.diagnostic-error {
     background-color: #dc3545 !important;
     box-shadow: 0 0 15px #dc3545, inset 0 0 10px #ff0000;
-    animation: pulse-red 1s infinite; /* 加快闪烁频率 */
+    animation: pulse-red 1s infinite;
     border: 2px solid #fff;
     z-index: 10;
 }
@@ -57,14 +57,14 @@ pre { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 6px; ov
     z-index: 10;
 }
 
-/* 自定义悬浮提示框 Tooltip */
+/* 自定义悬浮提示框 Tooltip (修复被遮挡的问题) */
 .pin[data-tooltip]:hover::after {
     content: attr(data-tooltip);
     position: absolute;
-    bottom: 110%;
+    top: 110%; /* 改为在下方显示，防止向上超出边界 */
     left: 50%;
     transform: translateX(-50%);
-    background-color: rgba(0, 0, 0, 0.85);
+    background-color: rgba(0, 0, 0, 0.9);
     color: #fff;
     padding: 8px 12px;
     border-radius: 6px;
@@ -74,7 +74,7 @@ pre { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 6px; ov
     width: max-content;
     max-width: 250px;
     text-align: left;
-    z-index: 100;
+    z-index: 9999; /* 提升层级，绝对置顶 */
     pointer-events: none;
     box-shadow: 0 4px 10px rgba(0,0,0,0.3);
     border: 1px solid rgba(255,255,255,0.2);
@@ -84,13 +84,13 @@ pre { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 6px; ov
 .pin[data-tooltip]:hover::before {
     content: '';
     position: absolute;
-    bottom: 100%;
+    top: 100%;
     left: 50%;
     transform: translateX(-50%);
     border-width: 6px;
     border-style: solid;
-    border-color: rgba(0, 0, 0, 0.85) transparent transparent transparent;
-    z-index: 100;
+    border-color: transparent transparent rgba(0, 0, 0, 0.9) transparent;
+    z-index: 9999;
     pointer-events: none;
 }
 
