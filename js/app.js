@@ -5,7 +5,11 @@ let boardConfig = null;
 let moduleLibrary = null;
 let pinsState = {}; 
 let activeModules = []; 
-let activeBuses = { I2C: {}, SPI: {} };
+let activeBuses = { I2C: {}, SPI: {} }; 
+
+// 用于协商弹窗的暂存状态
+let pendingModule = null; 
+let pendingOptionalDrops = []; 
 
 // ==========================================
 // 2. 初始化与数据加载
@@ -26,18 +30,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         initPins();
         populateModuleSelect();
         
-        // 等待诊断引擎的规则库加载完毕
         if (typeof initDiagnosticsEngine === 'function') {
             await initDiagnosticsEngine();
         }
 
-        // 引擎准备就绪后，渲染第一次界面
         renderPins();
         renderModules();
         
     } catch (error) {
         console.error(error);
-        alert("数据加载失败！请确保你是通过 http 协议访问，不要直接双击打开 HTML。");
+        alert("数据加载失败！请确保你是通过 http 协议访问。");
     }
 });
 
@@ -75,12 +77,9 @@ function renderPins() {
     let allConnections = [];
     activeModules.forEach(mod => {
         for (const [signal, pinStr] of Object.entries(mod.connections)) {
+            if (pinStr === "dropped") continue;
             String(pinStr).split(',').forEach(p => {
-                allConnections.push({ 
-                    pin: Number(p), 
-                    module: moduleLibrary[mod.id].name, 
-                    signal: signal 
-                });
+                allConnections.push({ pin: Number(p), module: moduleLibrary[mod.id].name, signal: signal });
             });
         }
     });
@@ -97,7 +96,6 @@ function renderPins() {
         const div = document.createElement('div');
         
         let className = `pin ${pin.state}`;
-        
         const errorObj = report.errors.find(e => e.pin === i);
         const warningObj = report.warnings.find(w => w.pin === i);
         
@@ -112,19 +110,18 @@ function renderPins() {
         }
         
         div.className = className;
-        
         let labelHtml = `<div class="io-num">IO${i}</div>`;
         
         if (pin.state === 'used') {
             labelHtml += `<div class="pin-label">${pin.owner}<br>${pin.signal}</div>`;
             div.onclick = () => releasePin(i);
-            if (!tooltipText) tooltipText = `点击可强制释放此引脚。\n当前使用模组: ${pin.owner}\n信号类型: ${pin.signal}`;
+            if (!tooltipText) tooltipText = `点击可强制释放此引脚。\n当前使用: ${pin.owner} (${pin.signal})`;
         } else if (pin.state === 'strapping') {
             labelHtml += `<div class="pin-label">启动敏感</div>`;
-            if (!tooltipText) tooltipText = `Strapping 引脚。启动时电平会影响芯片模式，请谨慎接入外设。`;
+            if (!tooltipText) tooltipText = `Strapping 引脚。请谨慎接入外设。`;
         } else if (pin.state === 'fixed') {
              labelHtml += `<div class="pin-label">${pin.label}</div>`;
-             if (!tooltipText) tooltipText = `主控系统占用引脚，严禁外接其他模组。`;
+             if (!tooltipText) tooltipText = `主控系统占用，严禁外接。`;
         } else {
              if (!tooltipText) tooltipText = "空闲可用";
         }
@@ -168,16 +165,21 @@ function renderModules() {
         wiringList.appendChild(title);
 
         for (const [signal, pinNum] of Object.entries(mod.connections)) {
-            let isShared = (mod.interface === 'I2C' || mod.interface === 'SPI') && (signal === 'SDA' || signal === 'SCL' || signal === 'MOSI' || signal === 'MISO' || signal === 'SCK');
-            
             const item = document.createElement('div');
             item.className = 'connection-item';
-            item.innerHTML = `
-                <strong>${signal}</strong> 
-                <span style="margin: 0 10px;">➡</span> 
-                <span style="color:var(--pin-fixed); font-weight:bold; font-size:1.1rem;">GPIO ${pinNum}</span>
-                ${isShared ? '<span style="font-size:10px; color:#888; margin-left:10px;">(总线共享)</span>' : ''}
-            `;
+            
+            if (pinNum === "dropped") {
+                item.innerHTML = `<strong>${signal}</strong> <span style="margin: 0 10px;">➡</span> <span style="color:#dc3545; font-weight:bold; text-decoration:line-through;">已放弃连接</span>`;
+                item.style.borderColor = '#dc3545';
+            } else {
+                let isShared = (mod.interface === 'I2C' || mod.interface === 'SPI') && (signal === 'SDA' || signal === 'SCL' || signal === 'MOSI' || signal === 'MISO' || signal === 'SCK');
+                item.innerHTML = `
+                    <strong>${signal}</strong> 
+                    <span style="margin: 0 10px;">➡</span> 
+                    <span style="color:var(--pin-fixed); font-weight:bold; font-size:1.1rem;">GPIO ${pinNum}</span>
+                    ${isShared ? '<span style="font-size:10px; color:#888; margin-left:10px;">(总线共享)</span>' : ''}
+                `;
+            }
             wiringList.appendChild(item);
         }
     });
@@ -187,78 +189,175 @@ function renderModules() {
 }
 
 // ==========================================
-// 4. 智能分配核心逻辑
+// 4. 智能分配与协商核心逻辑
 // ==========================================
-function addModule() {
-    const select = document.getElementById('module-select');
-    const modId = select.value;
-    if (!modId) return alert('请先选择模组');
 
-    const modData = moduleLibrary[modId];
-    const newConnections = {};
-    const tempAllocations = []; 
+// 尝试分配逻辑抽取（返回成功分配的计划和失败的必选、可选引脚）
+function tryAllocate(modData, pinsStateCopy) {
+    let allocations = {}; // 记录当前尝试的分配结果
+    let assignedPins = []; 
+    let missingRequired = [];
+    let missingOptional = [];
 
-    for (const req of modData.requirements) {
+    // 排序：先分配必选，再分配可选，保证核心总线绝对能抢到资源
+    let reqs = [...modData.requirements].sort((a, b) => a.optional === b.optional ? 0 : a.optional ? 1 : -1);
+
+    for (const req of reqs) {
         let pinsToAllocate = req.count;
         let allocated = [];
         
+        // 1. 复用总线
         if (modData.interface && activeBuses[modData.interface] && activeBuses[modData.interface][req.signal]) {
             const existingPin = activeBuses[modData.interface][req.signal];
             allocated.push(existingPin);
             pinsToAllocate--;
         }
 
+        // 2. 默认引脚
         if (pinsToAllocate > 0 && modData.interface && boardConfig.defaultInterfaces[modData.interface]) {
             const defaultPins = boardConfig.defaultInterfaces[modData.interface];
-            if (defaultPins[req.signal] && pinsState[defaultPins[req.signal]].state === 'free') {
-                const p = defaultPins[req.signal];
-                pinsState[p] = { state: 'used', owner: modId, signal: req.signal };
-                allocated.push(p);
-                tempAllocations.push(p);
+            if (defaultPins[req.signal] && pinsStateCopy[defaultPins[req.signal]] === 'free' && !allocated.includes(defaultPins[req.signal])) {
+                allocated.push(defaultPins[req.signal]);
                 pinsToAllocate--;
-                
-                if (modData.interface) {
-                    activeBuses[modData.interface][req.signal] = p;
-                }
             }
         }
 
+        // 3. 推荐引脚
         if (pinsToAllocate > 0 && modData.preferredPins) {
             for (const p of modData.preferredPins) {
                 if (pinsToAllocate <= 0) break;
-                if (pinsState[p].state === 'free' && !allocated.includes(p)) {
-                    pinsState[p] = { state: 'used', owner: modId, signal: req.signal };
+                if (pinsStateCopy[p] === 'free' && !allocated.includes(p)) {
                     allocated.push(p);
-                    tempAllocations.push(p);
                     pinsToAllocate--;
                 }
             }
         }
 
+        // 4. 兜底
         if (pinsToAllocate > 0) {
             for (let i = 0; i <= 48; i++) {
                 if (pinsToAllocate <= 0) break;
-                if (pinsState[i] && pinsState[i].state === 'free') {
-                    pinsState[i] = { state: 'used', owner: modId, signal: req.signal };
+                if (pinsStateCopy[i] === 'free') {
                     allocated.push(i);
-                    tempAllocations.push(i);
                     pinsToAllocate--;
                 }
             }
         }
 
+        // 记录结果
         if (pinsToAllocate > 0) {
-            alert(`引脚不足！无法满足 ${modData.name} 的 ${req.signal} 需求。`);
-            tempAllocations.forEach(p => { pinsState[p] = { state: 'free', label: 'Free' }; });
-            if (modData.interface) {
-                 for (const [k, v] of Object.entries(activeBuses[modData.interface])) {
-                     if (tempAllocations.includes(v)) delete activeBuses[modData.interface][k];
-                 }
-            }
-            return;
+            if (req.optional) missingOptional.push(req.signal);
+            else missingRequired.push(req.signal);
+        } else {
+            allocations[req.signal] = allocated;
+            // 模拟占用
+            allocated.forEach(p => { pinsStateCopy[p] = 'used'; });
+            assignedPins.push(...allocated);
         }
+    }
 
-        newConnections[req.signal] = req.count > 1 ? allocated.join(',') : allocated[0];
+    return { allocations, missingRequired, missingOptional };
+}
+
+function addModule() {
+    const select = document.getElementById('module-select');
+    const modId = select.value;
+    if (!modId) return alert('请先选择模组');
+
+    const modData = moduleLibrary[modId];
+    
+    // 复制一份当前引脚状态用于沙盘推演
+    let pinsStateCopy = {};
+    for (let i = 0; i <= 48; i++) {
+        if(pinsState[i]) pinsStateCopy[i] = pinsState[i].state;
+    }
+
+    const result = tryAllocate(modData, pinsStateCopy);
+
+    // 情况 A：必选引脚都不够，直接报错
+    if (result.missingRequired.length > 0) {
+        alert(`引脚严重不足！无法满足核心必选信号 (${result.missingRequired.join(', ')})，请先释放其他引脚。`);
+        return;
+    }
+
+    // 情况 B：完美分配（甚至可选引脚也够了）
+    if (result.missingOptional.length === 0) {
+        commitAllocation(modId, result.allocations);
+        return;
+    }
+
+    // 情况 C：可选引脚不够，触发协商弹窗
+    pendingModule = { id: modId, allocations: result.allocations };
+    pendingOptionalDrops = result.missingOptional; // 记录哪些可选引脚分不到了
+    
+    // 渲染弹窗 UI
+    const optionsDiv = document.getElementById('negotiation-options');
+    optionsDiv.innerHTML = '';
+    result.missingOptional.forEach(signal => {
+        const label = document.createElement('label');
+        label.style.display = 'block';
+        label.style.marginBottom = '5px';
+        // 默认勾选（同意放弃）
+        label.innerHTML = `<input type="checkbox" value="${signal}" checked> 放弃 ${signal} 引脚 (余量不足)`;
+        optionsDiv.appendChild(label);
+    });
+    
+    document.getElementById('negotiation-modal').style.display = 'flex';
+}
+
+function cancelNegotiation() {
+    document.getElementById('negotiation-modal').style.display = 'none';
+    pendingModule = null;
+    pendingOptionalDrops = [];
+}
+
+function confirmNegotiation() {
+    document.getElementById('negotiation-modal').style.display = 'none';
+    
+    // 读取用户勾选的放弃项
+    const checkboxes = document.querySelectorAll('#negotiation-options input[type="checkbox"]:checked');
+    const confirmedDrops = Array.from(checkboxes).map(cb => cb.value);
+
+    // 将用户同意放弃的引脚标记为 "dropped"
+    const finalAllocations = { ...pendingModule.allocations };
+    confirmedDrops.forEach(signal => {
+        finalAllocations[signal] = "dropped"; 
+    });
+
+    // 把那些分不到的，但用户又死活不想放弃的（取消了勾选）找出来
+    // 如果用户取消了勾选，但引脚确实不够，我们只能强行标记 dropped，并提示
+    const stubbornSignals = pendingOptionalDrops.filter(s => !confirmedDrops.includes(s));
+    if (stubbornSignals.length > 0) {
+        stubbornSignals.forEach(sig => finalAllocations[sig] = "dropped");
+        alert(`注意：因为引脚确实不够，${stubbornSignals.join(', ')} 依然无法分配。`);
+    }
+
+    commitAllocation(pendingModule.id, finalAllocations);
+    pendingModule = null;
+    pendingOptionalDrops = [];
+}
+
+function commitAllocation(modId, allocations) {
+    const modData = moduleLibrary[modId];
+    const newConnections = {};
+
+    for (const [signal, pins] of Object.entries(allocations)) {
+        if (pins === "dropped") {
+            newConnections[signal] = "dropped";
+        } else {
+            newConnections[signal] = pins.length > 1 ? pins.join(',') : pins[0];
+            
+            // 真正在全局状态中占用引脚
+            pins.forEach(p => {
+                pinsState[p] = { state: 'used', owner: modId, signal: signal };
+            });
+            
+            // 记录总线
+            if (modData.interface && (signal === 'SDA' || signal === 'SCL' || signal === 'MOSI' || signal === 'MISO' || signal === 'SCK')) {
+                if (!activeBuses[modData.interface]) activeBuses[modData.interface] = {};
+                activeBuses[modData.interface][signal] = Number(pins[0]);
+            }
+        }
     }
 
     activeModules.push({ 
@@ -288,6 +387,7 @@ function releasePin(pinNum) {
             
             activeModules.forEach(mod => {
                 for (const [signal, pinStr] of Object.entries(mod.connections)) {
+                    if (pinStr === "dropped") continue;
                     String(pinStr).split(',').forEach(p => {
                         pinsState[p] = { state: 'used', owner: mod.id, signal: signal };
                         if (mod.interface && (signal === 'SDA' || signal === 'SCL' || signal === 'MOSI' || signal === 'MISO' || signal === 'SCK')) {
@@ -319,8 +419,7 @@ function generateCodePreview() {
     const pre = document.getElementById('code-preview');
     let code = `/*\n * 自动生成的引脚配置头文件\n * 目标平台: ${boardConfig.boardName}\n * 生成时间: ${new Date().toLocaleString()}\n */\n\n#ifndef PIN_CONFIG_H\n#define PIN_CONFIG_H\n\n`;
 
-    let hasI2C = false;
-    let hasSPI = false;
+    let hasI2C = false, hasSPI = false;
     activeModules.forEach(mod => {
         if (mod.interface === 'I2C') hasI2C = true;
         if (mod.interface === 'SPI') hasSPI = true;
@@ -329,8 +428,8 @@ function generateCodePreview() {
     if (hasI2C) {
         code += `/* --- I2C Bus Configuration --- */\n`;
         const i2cMod = activeModules.find(m => m.interface === 'I2C');
-        if (i2cMod && i2cMod.connections['SDA']) code += `#define I2C_MASTER_SDA_IO  ${i2cMod.connections['SDA']}\n`;
-        if (i2cMod && i2cMod.connections['SCL']) code += `#define I2C_MASTER_SCL_IO  ${i2cMod.connections['SCL']}\n`;
+        if (i2cMod && i2cMod.connections['SDA'] && i2cMod.connections['SDA'] !== "dropped") code += `#define I2C_MASTER_SDA_IO  ${i2cMod.connections['SDA']}\n`;
+        if (i2cMod && i2cMod.connections['SCL'] && i2cMod.connections['SCL'] !== "dropped") code += `#define I2C_MASTER_SCL_IO  ${i2cMod.connections['SCL']}\n`;
         code += `\n`;
     }
 
@@ -338,7 +437,7 @@ function generateCodePreview() {
         code += `/* --- SPI Bus Configuration --- */\n`;
         const spiMod = activeModules.find(m => m.interface === 'SPI');
         ['MOSI', 'MISO', 'SCK', 'CS'].forEach(sig => {
-            if (spiMod && spiMod.connections[sig]) {
+            if (spiMod && spiMod.connections[sig] && spiMod.connections[sig] !== "dropped") {
                 code += `#define SPI_MASTER_${sig}_IO  ${spiMod.connections[sig]}\n`;
             }
         });
@@ -357,7 +456,10 @@ function generateCodePreview() {
             specificSignals.forEach(sig => {
                 const pinStr = mod.connections[sig];
                 const prefix = mod.id.toUpperCase();
-                if (String(pinStr).includes(',')) {
+                
+                if (pinStr === "dropped") {
+                    code += `// #define ${prefix}_${sig}  (未连接，请在代码中通过软件处理)\n`;
+                } else if (String(pinStr).includes(',')) {
                     String(pinStr).split(',').forEach((p, i) => {
                         code += `#define ${prefix}_${sig}_${i}  ${p}\n`;
                     });
@@ -401,7 +503,6 @@ function importConfig(event) {
     reader.onload = (e) => {
         try {
             const importedData = JSON.parse(e.target.result);
-            
             if (!Array.isArray(importedData)) throw new Error("配置文件格式不正确");
 
             activeModules = [];
@@ -412,6 +513,7 @@ function importConfig(event) {
                 if (moduleLibrary[mod.id]) {
                     activeModules.push(mod);
                     for (const [signal, pinStr] of Object.entries(mod.connections)) {
+                        if (pinStr === "dropped") continue;
                         String(pinStr).split(',').forEach(p => {
                             const pinNum = Number(p);
                             if (pinsState[pinNum]) {
@@ -432,7 +534,7 @@ function importConfig(event) {
 
         } catch (error) {
             console.error(error);
-            alert("解析配置文件失败，请确保文件是由本工具导出的合法 JSON。");
+            alert("解析配置文件失败！");
         }
         event.target.value = ''; 
     };
