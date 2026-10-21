@@ -1,5 +1,5 @@
 window.globalModuleData = {
-    // --- 显示类 (需要输出) ---
+    // --- 📺 显示类 ---
     "i2c_oled": {
         "name": "0.96寸 OLED (I2C)", "category": "📺 显示类", "interface": "I2C", "signal_voltage": 3.3,
         "peak_current_ma": 20,
@@ -21,11 +21,27 @@ window.globalModuleData = {
         ]
     },
 
-    // --- 传感器类 (大多只读) ---
+    // --- 🌡️ 传感器类 ---
     "dht11": {
         "name": "DHT11 温湿度传感器", "category": "🌡️ 传感器类", "interface": "GPIO", "signal_voltage": 3.3,
         "peak_current_ma": 5,
         "requirements": [{ "signal": "DATA", "count": 1, "optional": false }]
+    },
+    "aht20": {
+        "name": "AHT20 温湿度 (I2C)", "category": "🌡️ 传感器类", "interface": "I2C", "signal_voltage": 3.3,
+        "peak_current_ma": 1,
+        "requirements": [
+            { "signal": "SDA", "count": 1, "optional": false, "internal_pull": "up" },
+            { "signal": "SCL", "count": 1, "optional": false, "internal_pull": "up" }
+        ]
+    },
+    "mpu6050": {
+        "name": "MPU6050 六轴 (I2C)", "category": "🌡️ 传感器类", "interface": "I2C", "signal_voltage": 3.3,
+        "peak_current_ma": 4,
+        "requirements": [
+            { "signal": "SDA", "count": 1, "optional": false, "internal_pull": "up" },
+            { "signal": "SCL", "count": 1, "optional": false, "internal_pull": "up" }
+        ]
     },
     "ldr_sensor": {
         "name": "光敏电阻传感器 (模拟)", "category": "🌡️ 传感器类", "interface": "ADC", "signal_voltage": 3.3,
@@ -33,21 +49,23 @@ window.globalModuleData = {
         "requirements": [{ "signal": "AOUT", "count": 1, "optional": false }]
     },
 
-    // --- 通信类 ---
-    "wifi_module": {
-        "name": "Wi-Fi 射频模块 (内置)", "category": "📡 通信类", "interface": "INTERNAL", "signal_voltage": 3.3,
-        "peak_current_ma": 250, "uses_wifi": true,
-        "requirements": []
+    // --- 📷 视觉类 ---
+    "ov2640": {
+        "name": "OV2640 摄像头 (DVP)", "category": "📷 视觉类", "interface": "DVP", "signal_voltage": 3.3,
+        "peak_current_ma": 200,
+        "requirements": [
+            { "signal": "SDA", "count": 1, "optional": false }, 
+            { "signal": "SCL", "count": 1, "optional": false },
+            { "signal": "XCLK", "count": 1, "optional": false, "high_speed": true }, 
+            { "signal": "PCLK", "count": 1, "optional": false, "high_speed": true },
+            { "signal": "VSYNC", "count": 1, "optional": false }, 
+            { "signal": "HREF", "count": 1, "optional": false },
+            { "signal": "D0-D7", "count": 8, "optional": false, "high_speed": true }
+        ],
+        "preferredPins": [4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18]
     },
 
-    // --- 执行器类 (强需求输出) ---
-    "relay_low_trigger": {
-        "name": "低电平触发继电器", "category": "⚙️ 执行器类", "interface": "GPIO", "signal_voltage": 3.3,
-        "peak_current_ma": 70,
-        "requirements": [{ "signal": "IN", "count": 1, "optional": false, "default_state": "LOW", "requires_output": true }]
-    },
-
-    // --- 音频类 ---
+    // --- 🎵 音频类 ---
     "mic_inmp441": {
         "name": "INMP441 麦克风 (I2S)", "category": "🎵 音频类", "interface": "I2S_IN", "signal_voltage": 3.3,
         "peak_current_ma": 3,
@@ -65,5 +83,33 @@ window.globalModuleData = {
             { "signal": "LRC", "count": 1, "optional": false, "requires_output": true },
             { "signal": "DIN", "count": 1, "optional": false, "high_speed": true, "requires_output": true }
         ]
+    },
+
+    // --- 📡 通信类 ---
+    "wifi_module": {
+        "name": "Wi-Fi 射频模块 (内置)", "category": "📡 通信类", "interface": "INTERNAL", "signal_voltage": 3.3,
+        "peak_current_ma": 250, "uses_wifi": true,
+        "requirements": []
+    },
+    "4g_module": {
+        "name": "4G 通信模组 (Cat.1)", "category": "📡 通信类", "interface": "UART", "signal_voltage": 3.3,
+        "peak_current_ma": 500, "uses_wifi": true,
+        "requirements": [
+            { "signal": "TX", "count": 1, "optional": false },
+            { "signal": "RX", "count": 1, "optional": false },
+            { "signal": "PWRKEY", "count": 1, "optional": true }
+        ]
+    },
+
+    // --- ⚙️ 执行器类 ---
+    "relay_low_trigger": {
+        "name": "低电平触发继电器", "category": "⚙️ 执行器类", "interface": "GPIO", "signal_voltage": 3.3,
+        "peak_current_ma": 70,
+        "requirements": [{ "signal": "IN", "count": 1, "optional": false, "default_state": "LOW", "requires_output": true }]
+    },
+    "sg90_servo": {
+        "name": "SG90 舵机 (PWM)", "category": "⚙️ 执行器类", "interface": "PWM", "signal_voltage": 3.3,
+        "peak_current_ma": 700,
+        "requirements": [{ "signal": "PWM", "count": 1, "optional": false, "requires_output": true }]
     }
 };
