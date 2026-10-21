@@ -1,15 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 引脚智能配置系统</title>
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        /* 高级组合下拉框样式 (上下统一) */
+        .custom-select-wrapper { position: relative; width: 100%; }
+        .custom-select-display {
+            width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px;
+            background: #fff; cursor: pointer; box-sizing: border-box; color: #333;
+            display: flex; justify-content: space-between; align-items: center; font-size: 14px;
+            transition: border-color 0.2s; height: 42px;
+        }
+        .custom-select-display:hover { border-color: #999; }
+        .custom-select-panel {
+            display: none; position: absolute; top: 100%; left: 0; width: 100%;
+            background: #fff; border: 1px solid var(--border); border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000; margin-top: 4px;
+            max-height: 350px; overflow: hidden; flex-direction: column;
+        }
+        .custom-select-panel.show { display: flex; }
+        .custom-select-search { padding: 8px; border-bottom: 1px solid #eee; }
+        .custom-select-search input { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; margin: 0; font-size: 13px; outline: none; }
+        .custom-select-search input:focus { border-color: var(--primary); }
+        .custom-select-tabs { display: flex; overflow-x: auto; border-bottom: 1px solid #eee; background: #f8f9fa; }
+        .custom-select-tabs::-webkit-scrollbar { display: none; }
+        .custom-tab { padding: 10px 15px; font-size: 12px; cursor: pointer; white-space: nowrap; color: #666; border-bottom: 2px solid transparent; }
+        .custom-tab:hover { color: var(--primary); }
+        .custom-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: bold; background: #fff; }
+        .custom-select-options { flex: 1; overflow-y: auto; max-height: 200px; }
+        .custom-option { padding: 10px 12px; cursor: pointer; font-size: 13px; border-bottom: 1px solid #f0f0f0; color: #333; }
+        .custom-option:hover { background: #e9ecef; }
+        .custom-option:last-child { border-bottom: none; }
+
+        /* 🌟 打印专用样式 🌟 */
+        @media print {
+            body { background: #fff; padding: 0; margin: 0; display: block; height: auto; }
+            .sidebar, .main-content, #global-tooltip { display: none !important; }
+            #print-section { display: block !important; width: 100%; padding: 20px; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #000; }
+            .print-header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+            .print-title { font-size: 24px; font-weight: bold; margin: 0 0 10px 0; }
+            .print-meta { font-size: 14px; color: #555; }
+            .print-warning-box { border: 2px solid #dc3545; background: #fff3f3; padding: 10px; margin-bottom: 20px; font-size: 14px; page-break-inside: avoid; }
+            .print-warning-title { color: #dc3545; font-weight: bold; margin-bottom: 5px; }
+            .print-module-block { margin-bottom: 25px; page-break-inside: avoid; }
+            .print-module-name { font-size: 18px; font-weight: bold; background: #eee; padding: 8px; margin-bottom: 10px; border-left: 5px solid #333; }
+            .print-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+            .print-table th, .print-table td { border: 1px solid #999; padding: 10px; text-align: left; font-size: 14px; }
+            .print-table th { background: #f0f0f0; font-weight: bold; }
+            .print-checkbox { width: 20px; height: 20px; border: 2px solid #333; display: inline-block; vertical-align: middle; }
+            .print-footer { text-align: center; font-size: 12px; color: #888; margin-top: 40px; border-top: 1px solid #ccc; padding-top: 10px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <!-- 1. 当前主控型号 -->
+        <div style="margin-bottom: 20px;">
+            <label style="font-size: 13px; font-weight: bold; color: #333; display: block; margin-bottom: 8px;">当前主控型号：</label>
+            <!-- 用同样的 custom-select-display 结构包裹原生 select -->
+            <div class="custom-select-display" style="padding: 0; overflow: hidden;">
+                <select id="board-select" onchange="switchBoard()" style="width: 100%; height: 100%; padding: 10px; border: none; outline: none; background: transparent; font-size: 14px; color: #333; cursor: pointer; appearance: none; -webkit-appearance: none; font-family: inherit;">
+                </select>
+                <span style="font-size: 10px; color: #888; position: absolute; right: 12px; pointer-events: none;">▼</span>
+            </div>
+        </div>
+
+        <!-- 隐藏掉之前多余的文字 -->
+        <h2 id="board-title" style="display: none;"></h2>
+        
+        <!-- 2. 选择外接模组 -->
+        <div style="margin-bottom: 15px;">
+            <label style="font-size: 13px; font-weight: bold; color: #333; display: block; margin-bottom: 8px;">选择外接模组：</label>
+            <div class="custom-select-wrapper" id="module-combobox">
+                <div class="custom-select-display" id="combobox-display" onclick="toggleCombobox()">
+                    <span id="combobox-text">-- 请选择 --</span>
+                    <span style="font-size: 10px; color: #888;">▼</span>
+                </div>
+                <div class="custom-select-panel" id="combobox-panel">
+                    <div class="custom-select-search">
+                        <input type="text" id="combobox-search" placeholder="🔍 搜索型号..." oninput="filterComboboxOptions()" onclick="event.stopPropagation()">
+                    </div>
+                    <div class="custom-select-tabs" id="combobox-tabs"></div>
+                    <div class="custom-select-options" id="combobox-options"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. 操作按钮 -->
+        <button onclick="addModule()" style="width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; transition: background 0.2s; margin-bottom: 20px;">智能分配引脚</button>
+
+        <!-- 去掉横线，直接用 margin 撑开 -->
+        <div style="height: 1px; background: var(--border); margin: 0 0 20px 0;"></div>
+        
+        <!-- 4. 已接入模组列表 -->
+        <h2 style="font-size: 15px; margin-top: 0; border-bottom: none; padding-bottom: 0; margin-bottom: 10px;">已接入模组</h2>
+        <div id="active-modules-list" style="flex:1; overflow-y: auto;">
+            <p style="color:#888; font-size:12px; text-align:center; margin-top: 20px;">暂无模组</p>
+        </div>
+        <button class="btn-danger" onclick="resetAll()" style="width: 100%; padding: 10px; background: #dc3545; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; margin-top: 10px;">重置全部</button>
+
+        <div style="height: 1px; background: var(--border); margin: 20px 0;"></div>
+        
+        <!-- 5. 导出配置 -->
+        <h2 style="font-size: 15px; margin-top: 0; border-bottom: none; padding-bottom: 0; margin-bottom: 10px;">导出配置</h2>
+        <button onclick="exportConfig()" style="width: 100%; padding: 10px; background: #28a745; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; margin-bottom: 10px;">导出 JSON 配置</button>
+        <button onclick="exportCHeader()" style="width: 100%; padding: 10px; background: #17a2b8; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; margin-bottom: 10px;">生成 C 语言头文件</button>
+        <button onclick="printWiringSheet()" style="width: 100%; padding: 10px; background: #6f42c1; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer;">🖨️ 打印接线单</button>
+    </div>
+
+    <div class="main-content">
         <!-- 功耗预算进度条 (单行紧凑版) -->
         <div class="panel" style="padding: 12px 20px;">
             <div style="display: flex; align-items: center; gap: 15px;">
-                <!-- 左侧标题 -->
                 <h2 style="font-size: 14px; margin: 0; border: none; padding: 0; white-space: nowrap; color: #333;">主控供电预算</h2>
-                
-                <!-- 中间进度条 (自适应宽度) -->
                 <div style="flex: 1; height: 10px; background: #e9ecef; border-radius: 5px; overflow: hidden;">
                     <div id="power-bar" style="height: 100%; width: 0%; background: #28a745; transition: width 0.3s, background-color 0.3s;"></div>
                 </div>
-                
-                <!-- 右侧数据 -->
                 <span id="power-text" style="font-size: 13px; font-weight: bold; color: #28a745; white-space: nowrap;">0 mA / 450 mA (0%)</span>
             </div>
         </div>
+
+        <div class="panel">
+            <h2>主控引脚状态 (点击灰色引脚可强制释放)</h2>
+            <div class="legend">
+                <div class="legend-item"><div class="color-box" style="background:#a0a0a0;"></div>固定/系统占用</div>
+                <div class="legend-item"><div class="color-box" style="background:var(--pin-strapping);"></div>Strapping(启动敏感)</div>
+                <div class="legend-item"><div class="color-box" style="background:var(--pin-used);"></div>用户已占用</div>
+                <div class="legend-item"><div class="color-box" style="background:var(--pin-free);"></div>空闲可用</div>
+            </div>
+            <div class="pin-grid" id="pin-grid"></div>
+        </div>
+
+        <div class="panel" id="wiring-panel" style="display: none;">
+            <h2>接线指导 (供焊接工程师)</h2>
+            <div class="connection-list" id="connection-list"></div>
+        </div>
+
+        <div class="panel" id="code-panel" style="display: none;">
+            <h2>软件配置预览</h2>
+            <pre id="code-preview"></pre>
+        </div>
+    </div>
+
+    <!-- 专门用于打印的纯净视图 (平时隐藏) -->
+    <div id="print-section" style="display: none;"></div>
+
+    <!-- 协商弹窗 -->
+    <div id="negotiation-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 1000; justify-content: center; align-items: center;">
+        <div style="background: white; padding: 25px; border-radius: 8px; width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+            <h3 style="margin-top: 0; color: #dc3545;">⚠️ 引脚资源不足</h3>
+            <p style="font-size: 14px; color: #555;" id="negotiation-msg">当前剩余空闲引脚不足以分配完整的模组。</p>
+            <div style="background: #f8f9fa; border: 1px solid #ddd; padding: 10px; border-radius: 4px; margin-bottom: 15px;">
+                <p style="font-size: 13px; margin: 0 0 10px 0; font-weight: bold;">请勾选你愿意【放弃】的可选引脚：</p>
+                <div id="negotiation-options"></div>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                <button onclick="cancelNegotiation()" style="background: #6c757d; color: white; border: none; border-radius: 4px; padding: 8px 15px; cursor: pointer;">取消</button>
+                <button onclick="confirmNegotiation()" style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 8px 15px; cursor: pointer;">确认妥协</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 参数微调弹窗 -->
+    <div id="edit-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 1001; justify-content: center; align-items: center;">
+        <div style="background: white; padding: 25px; border-radius: 8px; width: 350px; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+            <h3 style="margin-top: 0; color: #333;">⚙️ 微调参数</h3>
+            <div style="margin-bottom: 15px;">
+                <label style="font-size: 13px; font-weight: bold; display: block; margin-bottom: 5px;">预估峰值电流 (mA):</label>
+                <input type="number" id="edit-current" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; outline: none;">
+            </div>
+            <div id="pin-count-container" style="margin-bottom: 15px; display: none;">
+                <label id="pin-count-label" style="font-size: 13px; font-weight: bold; display: block; margin-bottom: 5px;">数据线数量裁剪:</label>
+                <select id="edit-pin-count" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; outline: none;"></select>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="font-size: 13px; font-weight: bold; display: block; margin-bottom: 5px;">单线智能重排:</label>
+                <div id="edit-pin-list" style="max-height: 150px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; padding: 5px;"></div>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                <button onclick="closeEditPanel()" style="background: #6c757d; color: white; border: none; border-radius: 4px; padding: 8px 15px; cursor: pointer;">取消</button>
+                <button onclick="saveModuleParams()" style="background: #007bff; color: white; border: none; border-radius: 4px; padding: 8px 15px; cursor: pointer;">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 数据与逻辑加载 -->
+    <script src="data/boards.js"></script>
+    <script src="data/modules.js"></script>
+    
+    <script src="js/diagnostics.js"></script>
+    <script src="js/engine.js"></script>
+    <script src="js/ui-components.js"></script>
+    <script src="js/exporter.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
