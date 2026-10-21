@@ -5,31 +5,75 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32-S3 引脚智能配置系统</title>
     <link rel="stylesheet" href="css/style.css">
+    <style>
+        /* 高级组合下拉框（Combobox）样式 */
+        .custom-select-wrapper { position: relative; width: 100%; margin-bottom: 10px; }
+        .custom-select-display {
+            width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 4px;
+            background: #fff; cursor: pointer; box-sizing: border-box; color: #333;
+            display: flex; justify-content: space-between; align-items: center; font-size: 14px;
+            transition: border-color 0.2s;
+        }
+        .custom-select-display:hover { border-color: #999; }
+        .custom-select-panel {
+            display: none; position: absolute; top: 100%; left: 0; width: 100%;
+            background: #fff; border: 1px solid var(--border); border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000; margin-top: 4px;
+            max-height: 350px; overflow: hidden; flex-direction: column;
+        }
+        .custom-select-panel.show { display: flex; }
+        
+        /* 搜索区 */
+        .custom-select-search { padding: 8px; border-bottom: 1px solid #eee; }
+        .custom-select-search input { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; margin: 0; font-size: 13px; }
+        
+        /* 分类页签 */
+        .custom-select-tabs { display: flex; overflow-x: auto; border-bottom: 1px solid #eee; background: #f8f9fa; }
+        .custom-select-tabs::-webkit-scrollbar { display: none; }
+        .custom-tab { padding: 10px 15px; font-size: 12px; cursor: pointer; white-space: nowrap; color: #666; border-bottom: 2px solid transparent; }
+        .custom-tab:hover { color: var(--primary); }
+        .custom-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: bold; background: #fff; }
+        
+        /* 列表区 */
+        .custom-select-options { flex: 1; overflow-y: auto; max-height: 200px; }
+        .custom-option { padding: 10px 12px; cursor: pointer; font-size: 13px; border-bottom: 1px solid #f0f0f0; color: #333; }
+        .custom-option:hover { background: #e9ecef; }
+        .custom-option:last-child { border-bottom: none; }
+    </style>
 </head>
 <body>
     <div class="sidebar">
         <h2 id="board-title">加载中...</h2>
         
-        <!-- 搜索框 -->
-        <input type="text" id="module-search" placeholder="🔍 搜索模组型号 (如 TFT, 4G)..." oninput="filterModules()" style="width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 4px; box-sizing: border-box;">
-        
-        <!-- 分类下拉框 -->
-        <select id="module-category" onchange="updateModuleSelect()" style="margin-bottom: 5px;">
-            <option value="ALL">-- 全部分类 --</option>
-        </select>
+        <!-- 全新的高级组合下拉框 -->
+        <div class="custom-select-wrapper" id="module-combobox">
+            <div class="custom-select-display" id="combobox-display" onclick="toggleCombobox()">
+                <span id="combobox-text">-- 选择外设模组 --</span>
+                <span style="font-size: 10px; color: #888;">▼</span>
+            </div>
+            
+            <div class="custom-select-panel" id="combobox-panel">
+                <div class="custom-select-search">
+                    <input type="text" id="combobox-search" placeholder="🔍 搜索型号 (如 TFT, 4G)..." oninput="filterComboboxOptions()" onclick="event.stopPropagation()">
+                </div>
+                <div class="custom-select-tabs" id="combobox-tabs">
+                    <!-- 页签由 JS 动态生成 -->
+                </div>
+                <div class="custom-select-options" id="combobox-options">
+                    <!-- 选项由 JS 动态生成 -->
+                </div>
+            </div>
+        </div>
 
-        <!-- 具体型号下拉框 -->
-        <select id="module-select" style="margin-bottom: 10px;">
-            <option value="">-- 选择外设模组 --</option>
-        </select>
-        
         <button onclick="addModule()">智能分配引脚</button>
         <hr style="border:0; border-top:1px solid var(--border); margin: 20px 0;">
+        
         <h2>已接入模组</h2>
         <div id="active-modules-list" style="flex:1;">
             <p style="color:#888; font-size:12px; text-align:center;">暂无模组</p>
         </div>
         <button class="btn-danger" onclick="resetAll()">重置全部</button>
+
         <hr style="border:0; border-top:1px solid var(--border); margin: 20px 0;">
         <h2>导出配置</h2>
         <button class="btn-success" onclick="exportConfig()">导出 JSON 配置</button>
@@ -93,17 +137,17 @@
             
             <div style="margin-bottom: 15px;">
                 <label style="font-size: 13px; font-weight: bold; display: block; margin-bottom: 5px;">预估峰值电流 (mA):</label>
-                <input type="number" id="edit-current" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                <input type="number" id="edit-current" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
             </div>
 
             <div id="pin-count-container" style="margin-bottom: 15px; display: none;">
                 <label id="pin-count-label" style="font-size: 13px; font-weight: bold; display: block; margin-bottom: 5px;">数据线数量裁剪:</label>
-                <select id="edit-pin-count" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;"></select>
+                <select id="edit-pin-count" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;"></select>
             </div>
 
             <div style="margin-bottom: 15px;">
                 <label style="font-size: 13px; font-weight: bold; display: block; margin-bottom: 5px;">单线智能重排:</label>
-                <div id="edit-pin-list" style="max-height: 150px; overflow-y: auto;"></div>
+                <div id="edit-pin-list" style="max-height: 150px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; padding: 5px;"></div>
             </div>
 
             <div style="display: flex; justify-content: flex-end; gap: 10px;">
