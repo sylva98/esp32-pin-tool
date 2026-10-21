@@ -43,6 +43,7 @@ function renderComboboxOptions() {
     
     let count = 0;
     for (const [key, data] of Object.entries(moduleLibrary)) {
+        // 修复过滤逻辑：如果分类是 ALL，或者数据里的分类和选中的匹配
         const matchCat = (currentCategory === 'ALL' || data.category === currentCategory);
         const matchSearch = (data.name.toLowerCase().includes(currentSearch) || key.toLowerCase().includes(currentSearch));
         
@@ -80,7 +81,7 @@ function openEditPanel(index) {
     document.getElementById('edit-current').value = currentVal;
     document.getElementById('edit-current').placeholder = `默认: ${modData.peak_current_ma || 0} mA`;
 
-    // 🔥 新增：在微调面板里加入灵魂拷问警告
+    // 灵魂拷问警告
     const warningContainerId = 'edit-physics-warning';
     let warningContainer = document.getElementById(warningContainerId);
     
@@ -89,7 +90,6 @@ function openEditPanel(index) {
         warningContainer.id = warningContainerId;
         warningContainer.style.cssText = "background: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 10px; border-radius: 4px; font-size: 12px; margin-bottom: 15px; line-height: 1.5;";
         
-        // 插入到电流输入框之后
         const currentInput = document.getElementById('edit-current');
         currentInput.parentNode.insertBefore(warningContainer, currentInput.nextSibling);
     }
@@ -237,7 +237,6 @@ function saveModuleParams() {
         }
     }
 
-    // 强行微调后的串扰检查
     for (const [signal, pinStr] of Object.entries(mod.connections)) {
         if (pinStr === "dropped") continue;
         const req = modData.requirements.find(r => r.signal === signal);
