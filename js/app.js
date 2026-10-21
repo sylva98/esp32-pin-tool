@@ -14,34 +14,80 @@ let currentSearch = '';
 let selectedModuleId = '';
 
 // ==========================================
-// 1. 初始化 (读取单板数据)
+// 1. 初始化与多芯片切换
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     try {
         moduleLibrary = globalModuleData;
-        boardConfig = globalBoardData;
+        const boardSelect = document.getElementById('board-select');
         
-        document.getElementById('board-title').innerText = "当前配置: " + boardConfig.boardName;
-        
-        // 初始化引脚
-        for (let i = 0; i <= boardConfig.max_pin; i++) {
-            if (boardConfig.fixedPins.includes(i)) { pinsState[i] = { state: 'fixed', label: 'Fixed' }; } 
-            else if (!boardConfig.availableGpios.includes(i)) { pinsState[i] = { state: 'fixed', label: 'N/A' }; } 
-            else if (boardConfig.strappingPins[i]) { pinsState[i] = { state: 'strapping', label: 'Strap' }; } 
-            else { pinsState[i] = { state: 'free', label: 'Free' }; }
+        // 如果有多个芯片，填充下拉框
+        if (typeof globalBoards !== 'undefined') {
+            boardSelect.innerHTML = '';
+            boardSelect.style.display = 'block'; // 显示下拉框
+            boardSelect.disabled = false; // 解除禁用
+            for (const [key, data] of Object.entries(globalBoards)) {
+                const option = document.createElement('option');
+                option.value = key;
+                option.textContent = data.boardName;
+                boardSelect.appendChild(option);
+            }
+            const firstBoardKey = Object.keys(globalBoards)[0];
+            loadBoard(firstBoardKey);
+        } else {
+            // 兜底：如果只有单数的 globalBoardData
+            boardConfig = globalBoardData;
+            document.getElementById('board-title').innerText = "当前配置: " + boardConfig.boardName;
+            initPins();
+            if (typeof initCombobox === 'function') { initCombobox(); }
+            if (typeof initDiagnosticsEngine === 'function') { initDiagnosticsEngine(); }
+            renderPins();
+            renderModules();
+            updatePowerBudget();
         }
-        
-        if (typeof initCombobox === 'function') { initCombobox(); }
-        if (typeof initDiagnosticsEngine === 'function') { initDiagnosticsEngine(); }
-        
-        renderPins();
-        renderModules();
-        updatePowerBudget();
     } catch (error) {
         console.error(error);
         document.getElementById('board-title').innerText = "❌ 初始化失败";
     }
 });
+
+function initPins() {
+    pinsState = {};
+    for (let i = 0; i <= boardConfig.max_pin; i++) {
+        if (boardConfig.fixedPins.includes(i)) { pinsState[i] = { state: 'fixed', label: 'Fixed' }; } 
+        else if (!boardConfig.availableGpios.includes(i)) { pinsState[i] = { state: 'fixed', label: 'N/A' }; } 
+        else if (boardConfig.strappingPins[i]) { pinsState[i] = { state: 'strapping', label: 'Strap' }; } 
+        else { pinsState[i] = { state: 'free', label: 'Free' }; }
+    }
+}
+
+function loadBoard(boardKey) {
+    boardConfig = globalBoards[boardKey];
+    document.getElementById('board-title').innerText = "当前配置: " + boardConfig.boardName;
+    
+    // 重置状态
+    activeModules = []; 
+    activeBuses = { I2C: {}, SPI: {}, I2S_IN: {}, I2S_OUT: {}, UART: {} };
+    
+    initPins();
+    
+    if (typeof initCombobox === 'function') { initCombobox(); }
+    if (typeof initDiagnosticsEngine === 'function') { initDiagnosticsEngine(); }
+    
+    renderPins();
+    renderModules();
+    updatePowerBudget();
+}
+
+function switchBoard() {
+    if (activeModules.length > 0) {
+        if (!confirm('⚠️ 切换主控芯片将清空当前已配置的所有模组及引脚分配，是否继续？')) {
+            document.getElementById('board-select').value = boardConfig.boardName;
+            return;
+        }
+    }
+    loadBoard(document.getElementById('board-select').value);
+}
 
 // ==========================================
 // 2. 渲染逻辑
@@ -55,6 +101,7 @@ function renderPins() {
         globalTooltip.id = 'global-tooltip';
         document.body.appendChild(globalTooltip);
     }
+    
     let allConnections = [];
     activeModules.forEach(mod => {
         for (const [signal, pinStr] of Object.entries(mod.connections)) {
@@ -62,10 +109,12 @@ function renderPins() {
             String(pinStr).split(',').forEach(p => { allConnections.push({ pin: Number(p), module: moduleLibrary[mod.id].name, signal: signal }); });
         }
     });
+    
     let report = { errors: [], warnings: [] };
     if (typeof runHardwareDiagnostics === 'function' && typeof ruleKnowledgeBase !== 'undefined' && ruleKnowledgeBase) { 
         report = runHardwareDiagnostics(allConnections, boardConfig.boardName); 
     }
+    
     for (let i = 0; i <= boardConfig.max_pin; i++) {
         const pin = pinsState[i];
         if (!pin) continue; 
@@ -75,18 +124,31 @@ function renderPins() {
         const errorObj = report.errors.find(e => e.pin === i);
         const warningObj = report.warnings.find(w => w.pin === i);
         let tooltipText = "";
+        
         if (errorObj) { className += ' diagnostic-error'; tooltipText = "❌ " + errorObj.message; } 
         else if (warningObj) { className += ' diagnostic-warning'; tooltipText = "⚠️ " + warningObj.message; }
+        
         div.className = className;
         let labelHtml = `<div class="io-num">IO${i}</div>`;
+        
         if (pin.state === 'used') {
             labelHtml += `<div class="pin-label">${pin.owner}<br>${pin.signal}</div>`;
             div.onclick = () => releasePin(i);
             if (!tooltipText) tooltipText = `点击可强制释放此引脚。\n当前使用: ${pin.owner} (${pin.signal})`;
-        } else if (pin.state === 'strapping') { labelHtml += `<div class="pin-label">启动敏感</div>`; if (!tooltipText) tooltipText = `Strapping 引脚。请谨慎接入外设。`; } 
-        else if (pin.state === 'fixed') { labelHtml += `<div class="pin-label">${pin.label}</div>`; if (!tooltipText) tooltipText = `主控系统占用，严禁外接。`; } 
-        else { if (!tooltipText) tooltipText = "空闲可用"; }
-        if (errorObj || warningObj) { labelHtml += `<div style="position:absolute; top:2px; right:2px; font-size:14px;">${errorObj ? '❌' : '⚠️'}</div>`; }
+        } else if (pin.state === 'strapping') { 
+            labelHtml += `<div class="pin-label">启动敏感</div>`; 
+            if (!tooltipText) tooltipText = `Strapping 引脚。请谨慎接入外设。`; 
+        } else if (pin.state === 'fixed') { 
+            labelHtml += `<div class="pin-label">${pin.label}</div>`; 
+            if (!tooltipText) tooltipText = `主控系统占用，严禁外接。`; 
+        } else { 
+            if (!tooltipText) tooltipText = "空闲可用"; 
+        }
+        
+        if (errorObj || warningObj) { 
+            labelHtml += `<div style="position:absolute; top:2px; right:2px; font-size:14px;">${errorObj ? '❌' : '⚠️'}</div>`; 
+        }
+        
         div.onmouseenter = () => {
             if (!tooltipText) return;
             globalTooltip.textContent = tooltipText;
@@ -108,21 +170,26 @@ function renderModules() {
     const wiringPanel = document.getElementById('wiring-panel');
     const wiringList = document.getElementById('connection-list');
     const codePanel = document.getElementById('code-panel');
+    
     if (activeModules.length === 0) {
         list.innerHTML = '<p style="color:#888; font-size:12px; text-align:center;">暂无模组</p>';
         wiringPanel.style.display = 'none'; codePanel.style.display = 'none'; return;
     }
+    
     list.innerHTML = ''; wiringList.innerHTML = '';
+    
     if (typeof checkHighSpeedWarning === 'function' && checkHighSpeedWarning()) {
         const hwWarning = document.createElement('div');
         hwWarning.style.cssText = "font-size:13px; color:#856404; background-color:#fff3cd; border:1px solid #ffeeba; padding:10px; border-radius:4px; margin-bottom:15px; font-weight:bold;";
         hwWarning.innerHTML = `⚠️ <strong>物理走线警告</strong>：您的项目使用了 SPI/I2S 等高频信号引脚。请确保排线长度不超过 10cm，且信号线尽量分开或包地。`;
         wiringList.appendChild(hwWarning);
     }
+    
     const smartTip = document.createElement('div');
     smartTip.style.cssText = "font-size:12px; color:#28a745; margin-bottom:15px; background:#e8f5e9; padding:8px; border-radius:4px;";
     smartTip.innerHTML = `💡 <strong>智能避雷生效</strong>：已在后台自动过滤“5V烧板风险”、“启动引脚电平冲突”、“高频串扰”及“ADC2-WiFi冲突”。`;
     wiringList.appendChild(smartTip);
+    
     activeModules.forEach((mod, index) => {
         const modDiv = document.createElement('div');
         modDiv.className = 'module-tag';
@@ -136,10 +203,12 @@ function renderModules() {
             </div>
         `;
         list.appendChild(modDiv);
+        
         const title = document.createElement('h3');
         title.innerText = `${moduleLibrary[mod.id].name} (实例 #${index+1})`;
         title.style.fontSize = '1rem'; title.style.marginTop = '15px';
         wiringList.appendChild(title);
+        
         for (const [signal, pinNum] of Object.entries(mod.connections)) {
             const item = document.createElement('div');
             item.className = 'connection-item';
@@ -153,6 +222,7 @@ function renderModules() {
             wiringList.appendChild(item);
         }
     });
+    
     wiringPanel.style.display = 'block';
     generateCodePreview();
     updatePowerBudget();
@@ -165,9 +235,11 @@ function addModule() {
     const modId = selectedModuleId;
     if (!modId) return alert('请先选择模组');
     const modData = moduleLibrary[modId];
+    
     if (modData.interface === 'DVP' && boardConfig.max_pin <= 21) {
         return alert(`❌ 资源不足：${boardConfig.boardName} 的引脚数量较少，无法支撑 DVP 摄像头。`);
     }
+    
     let currentTotal = 0;
     activeModules.forEach(mod => {
         const mData = moduleLibrary[mod.id];
@@ -175,23 +247,31 @@ function addModule() {
     });
     const newTotal = currentTotal + (modData.peak_current_ma || 0);
     const maxCurrent = boardConfig.max_current_ma || 500;
+    
     if (newTotal > maxCurrent) {
         if (!confirm(`⚠️ 供电超载拦截\n\n总功耗将达到：${newTotal} mA\n已超过主控 LDO 安全上限 (${maxCurrent} mA)！\n是否继续添加？`)) return;
     }
+    
     if (activeModules.find(m => m.id === modId) && !confirm(`已经添加了【${moduleLibrary[modId].name}】。\n强行添加可能会导致冲突，确定继续吗？`)) return;
+    
     let pinsStateCopy = {};
     for (let i = 0; i <= boardConfig.max_pin; i++) { if(pinsState[i]) { pinsStateCopy[i] = { ...pinsState[i] }; } }
+    
     const result = tryAllocate(modData, pinsStateCopy);
+    
     if (result.missingRequired.length > 0) {
         return alert(`引脚严重不足或存在电气冲突！\n无法满足必选信号 (${result.missingRequired.join(', ')})。\n系统已为您拦截不安全的引脚。`);
     }
+    
     if (result.missingOptional.length === 0) { 
         commitAllocation(modId, result.allocations); 
         checkWifiAdcConflict(modId);
         return; 
     }
+    
     pendingModule = { id: modId, allocations: result.allocations };
     pendingOptionalDrops = result.missingOptional; 
+    
     const optionsDiv = document.getElementById('negotiation-options');
     optionsDiv.innerHTML = '';
     result.missingOptional.forEach(signal => {
@@ -212,9 +292,12 @@ function confirmNegotiation() {
     document.getElementById('negotiation-modal').style.display = 'none';
     const confirmedDrops = Array.from(document.querySelectorAll('#negotiation-options input[type="checkbox"]:checked')).map(cb => cb.value);
     const finalAllocations = { ...pendingModule.allocations };
+    
     confirmedDrops.forEach(signal => { finalAllocations[signal] = "dropped"; });
+    
     const stubbornSignals = pendingOptionalDrops.filter(s => !confirmedDrops.includes(s));
     if (stubbornSignals.length > 0) { stubbornSignals.forEach(sig => finalAllocations[sig] = "dropped"); }
+    
     const modId = pendingModule.id;
     commitAllocation(modId, finalAllocations);
     checkWifiAdcConflict(modId);
@@ -223,6 +306,8 @@ function confirmNegotiation() {
 
 function resetAll() {
     if(confirm('确定要清空所有配置吗？')) { 
-        location.reload();
+        // 重新加载当前选择的板子
+        const currentBoard = document.getElementById('board-select').value || Object.keys(globalBoards)[0];
+        loadBoard(currentBoard);
     }
 }
