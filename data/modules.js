@@ -6,6 +6,10 @@ window.globalModuleData = {
         "requirements": [
             { "signal": "SDA", "count": 1, "optional": false, "internal_pull": "up", "requires_output": true },
             { "signal": "SCL", "count": 1, "optional": false, "internal_pull": "up", "requires_output": true }
+        ],
+        "power_pins": [
+            { "pin": "VCC", "connect_to": "3.3V", "warning": "接主板 3.3V" },
+            { "pin": "GND", "connect_to": "GND", "warning": "接主板 GND" }
         ]
     },
     "spi_tft": {
@@ -18,6 +22,10 @@ window.globalModuleData = {
             { "signal": "DC", "count": 1, "optional": false, "requires_output": true },
             { "signal": "RST", "count": 1, "optional": true, "requires_output": true },
             { "signal": "BLK", "count": 1, "optional": true, "requires_output": true }
+        ],
+        "power_pins": [
+            { "pin": "VCC", "connect_to": "3.3V", "warning": "建议接主板 3.3V（耗电较大）" },
+            { "pin": "GND", "connect_to": "GND", "warning": "接主板 GND" }
         ]
     },
 
@@ -25,7 +33,11 @@ window.globalModuleData = {
     "dht11": {
         "name": "DHT11 温湿度传感器", "category": "🌡️ 传感器类", "interface": "GPIO", "signal_voltage": 3.3,
         "peak_current_ma": 5,
-        "requirements": [{ "signal": "DATA", "count": 1, "optional": false }]
+        "requirements": [{ "signal": "DATA", "count": 1, "optional": false }],
+        "power_pins": [
+            { "pin": "VCC", "connect_to": "3.3V", "warning": "接主板 3.3V" },
+            { "pin": "GND", "connect_to": "GND", "warning": "接主板 GND" }
+        ]
     },
     "aht20": {
         "name": "AHT20 温湿度 (I2C)", "category": "🌡️ 传感器类", "interface": "I2C", "signal_voltage": 3.3,
@@ -33,6 +45,10 @@ window.globalModuleData = {
         "requirements": [
             { "signal": "SDA", "count": 1, "optional": false, "internal_pull": "up" },
             { "signal": "SCL", "count": 1, "optional": false, "internal_pull": "up" }
+        ],
+        "power_pins": [
+            { "pin": "VCC", "connect_to": "3.3V", "warning": "接主板 3.3V" },
+            { "pin": "GND", "connect_to": "GND", "warning": "接主板 GND" }
         ]
     },
     "mpu6050": {
@@ -41,12 +57,20 @@ window.globalModuleData = {
         "requirements": [
             { "signal": "SDA", "count": 1, "optional": false, "internal_pull": "up" },
             { "signal": "SCL", "count": 1, "optional": false, "internal_pull": "up" }
+        ],
+        "power_pins": [
+            { "pin": "VCC", "connect_to": "3.3V", "warning": "接主板 3.3V" },
+            { "pin": "GND", "connect_to": "GND", "warning": "接主板 GND" }
         ]
     },
     "ldr_sensor": {
         "name": "光敏电阻传感器 (模拟)", "category": "🌡️ 传感器类", "interface": "ADC", "signal_voltage": 3.3,
         "peak_current_ma": 1, "requires_adc": true,
-        "requirements": [{ "signal": "AOUT", "count": 1, "optional": false }]
+        "requirements": [{ "signal": "AOUT", "count": 1, "optional": false }],
+        "power_pins": [
+            { "pin": "VCC", "connect_to": "3.3V", "warning": "接主板 3.3V" },
+            { "pin": "GND", "connect_to": "GND", "warning": "接主板 GND" }
+        ]
     },
 
     // --- 📷 视觉类 ---
@@ -62,7 +86,11 @@ window.globalModuleData = {
             { "signal": "HREF", "count": 1, "optional": false },
             { "signal": "D0-D7", "count": 8, "optional": false, "high_speed": true }
         ],
-        "preferredPins": [4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18]
+        "preferredPins": [4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18],
+        "power_pins": [
+            { "pin": "VCC", "connect_to": "3.3V", "warning": "接主板 3.3V" },
+            { "pin": "GND", "connect_to": "GND", "warning": "接主板 GND" }
+        ]
     },
 
     // --- 🎵 音频类 ---
@@ -73,6 +101,10 @@ window.globalModuleData = {
             { "signal": "BCLK", "count": 1, "optional": false, "high_speed": true, "requires_output": true },
             { "signal": "LRC", "count": 1, "optional": false, "requires_output": true },
             { "signal": "SD", "count": 1, "optional": false, "high_speed": true } 
+        ],
+        "power_pins": [
+            { "pin": "VCC", "connect_to": "3.3V", "warning": "接主板 3.3V" },
+            { "pin": "GND", "connect_to": "GND", "warning": "接主板 GND" }
         ]
     },
     "max98357a": {
@@ -82,6 +114,10 @@ window.globalModuleData = {
             { "signal": "BCLK", "count": 1, "optional": false, "high_speed": true, "requires_output": true },
             { "signal": "LRC", "count": 1, "optional": false, "requires_output": true },
             { "signal": "DIN", "count": 1, "optional": false, "high_speed": true, "requires_output": true }
+        ],
+        "power_pins": [
+            { "pin": "VCC", "connect_to": "5V", "warning": "必须接外部独立 5V（切勿接 3.3V）" },
+            { "pin": "GND", "connect_to": "GND", "warning": "必须与 ESP32 GND 共地" }
         ]
     },
 
@@ -89,7 +125,8 @@ window.globalModuleData = {
     "wifi_module": {
         "name": "Wi-Fi 射频模块 (内置)", "category": "📡 通信类", "interface": "INTERNAL", "signal_voltage": 3.3,
         "peak_current_ma": 250, "uses_wifi": true,
-        "requirements": []
+        "requirements": [],
+        "power_pins": []
     },
     "4g_module": {
         "name": "4G 通信模组 (Cat.1)", "category": "📡 通信类", "interface": "UART", "signal_voltage": 3.3,
@@ -98,6 +135,10 @@ window.globalModuleData = {
             { "signal": "TX", "count": 1, "optional": false },
             { "signal": "RX", "count": 1, "optional": false },
             { "signal": "PWRKEY", "count": 1, "optional": true }
+        ],
+        "power_pins": [
+            { "pin": "VCC", "connect_to": "5V", "warning": "需外部独立大电流 5V 供电" },
+            { "pin": "GND", "connect_to": "GND", "warning": "必须与 ESP32 GND 共地" }
         ]
     },
 
@@ -105,11 +146,19 @@ window.globalModuleData = {
     "relay_low_trigger": {
         "name": "低电平触发继电器", "category": "⚙️ 执行器类", "interface": "GPIO", "signal_voltage": 3.3,
         "peak_current_ma": 70,
-        "requirements": [{ "signal": "IN", "count": 1, "optional": false, "default_state": "LOW", "requires_output": true }]
+        "requirements": [{ "signal": "IN", "count": 1, "optional": false, "default_state": "LOW", "requires_output": true }],
+        "power_pins": [
+            { "pin": "VCC", "connect_to": "5V", "warning": "接主板 5V 或外部 5V" },
+            { "pin": "GND", "connect_to": "GND", "warning": "接主板 GND" }
+        ]
     },
     "sg90_servo": {
         "name": "SG90 舵机 (PWM)", "category": "⚙️ 执行器类", "interface": "PWM", "signal_voltage": 3.3,
         "peak_current_ma": 700,
-        "requirements": [{ "signal": "PWM", "count": 1, "optional": false, "requires_output": true }]
+        "requirements": [{ "signal": "PWM", "count": 1, "optional": false, "requires_output": true }],
+        "power_pins": [
+            { "pin": "VCC", "connect_to": "5V", "warning": "严禁接主板，必须外部独立 5V 供电" },
+            { "pin": "GND", "connect_to": "GND", "warning": "必须与 ESP32 GND 共地" }
+        ]
     }
 };
