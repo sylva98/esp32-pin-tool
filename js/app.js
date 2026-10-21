@@ -233,8 +233,11 @@ function renderModules() {
             modData.power_pins.forEach(p => {
                 const item = document.createElement('div');
                 item.className = 'connection-item';
-                // 如果超载，或者要求接外部电源（比如 5V），给个红色高亮背景
-                const isDangerousPower = isOverload || p.connect_to === '5V';
+                
+                // 🔥 核心优化：判断是否真正危险
+                // 默认是灰色的，只有系统超载，或者明确写了“必须外部供电 / 切勿接”才变红
+                const isExplicitExternal = p.warning.includes('外部独立') || p.warning.includes('切勿接');
+                const isDangerousPower = isOverload || isExplicitExternal;
                 
                 if (isDangerousPower) {
                     item.style.backgroundColor = '#fff3f3';
