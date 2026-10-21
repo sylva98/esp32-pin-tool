@@ -14,55 +14,34 @@ let currentSearch = '';
 let selectedModuleId = '';
 
 // ==========================================
-// 1. 初始化与芯片切换
+// 1. 初始化 (读取单板数据)
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     try {
         moduleLibrary = globalModuleData;
-        const boardSelect = document.getElementById('board-select');
-        boardSelect.innerHTML = '';
-        for (const [key, data] of Object.entries(globalBoards)) {
-            const option = document.createElement('option');
-            option.value = key;
-            option.textContent = data.boardName;
-            boardSelect.appendChild(option);
+        boardConfig = globalBoardData;
+        
+        document.getElementById('board-title').innerText = "当前配置: " + boardConfig.boardName;
+        
+        // 初始化引脚
+        for (let i = 0; i <= boardConfig.max_pin; i++) {
+            if (boardConfig.fixedPins.includes(i)) { pinsState[i] = { state: 'fixed', label: 'Fixed' }; } 
+            else if (!boardConfig.availableGpios.includes(i)) { pinsState[i] = { state: 'fixed', label: 'N/A' }; } 
+            else if (boardConfig.strappingPins[i]) { pinsState[i] = { state: 'strapping', label: 'Strap' }; } 
+            else { pinsState[i] = { state: 'free', label: 'Free' }; }
         }
-        const firstBoardKey = Object.keys(globalBoards)[0];
-        loadBoard(firstBoardKey);
+        
+        if (typeof initCombobox === 'function') { initCombobox(); }
+        if (typeof initDiagnosticsEngine === 'function') { initDiagnosticsEngine(); }
+        
+        renderPins();
+        renderModules();
+        updatePowerBudget();
     } catch (error) {
         console.error(error);
         document.getElementById('board-title').innerText = "❌ 初始化失败";
     }
 });
-
-function loadBoard(boardKey) {
-    boardConfig = globalBoards[boardKey];
-    document.getElementById('board-title').innerText = "当前配置: " + boardConfig.boardName;
-    activeModules = []; 
-    activeBuses = { I2C: {}, SPI: {}, I2S_IN: {}, I2S_OUT: {}, UART: {} };
-    pinsState = {};
-    for (let i = 0; i <= boardConfig.max_pin; i++) {
-        if (boardConfig.fixedPins.includes(i)) { pinsState[i] = { state: 'fixed', label: 'Fixed' }; } 
-        else if (!boardConfig.availableGpios.includes(i)) { pinsState[i] = { state: 'fixed', label: 'N/A' }; } 
-        else if (boardConfig.strappingPins[i]) { pinsState[i] = { state: 'strapping', label: 'Strap' }; } 
-        else { pinsState[i] = { state: 'free', label: 'Free' }; }
-    }
-    if (typeof initCombobox === 'function') { initCombobox(); }
-    if (typeof initDiagnosticsEngine === 'function') { initDiagnosticsEngine(); }
-    renderPins();
-    renderModules();
-    updatePowerBudget();
-}
-
-function switchBoard() {
-    if (activeModules.length > 0) {
-        if (!confirm('⚠️ 切换主控芯片将清空当前已配置的所有模组及引脚分配，是否继续？')) {
-            document.getElementById('board-select').value = boardConfig.boardName;
-            return;
-        }
-    }
-    loadBoard(document.getElementById('board-select').value);
-}
 
 // ==========================================
 // 2. 渲染逻辑
@@ -88,7 +67,6 @@ function renderPins() {
         report = runHardwareDiagnostics(allConnections, boardConfig.boardName); 
     }
     for (let i = 0; i <= boardConfig.max_pin; i++) {
-        // 已经移除了 S3 的跳过逻辑，让所有引脚显示出来与实物对应
         const pin = pinsState[i];
         if (!pin) continue; 
         
@@ -188,7 +166,7 @@ function addModule() {
     if (!modId) return alert('请先选择模组');
     const modData = moduleLibrary[modId];
     if (modData.interface === 'DVP' && boardConfig.max_pin <= 21) {
-        return alert(`❌ 资源不足：${boardConfig.boardName} 的引脚数量较少，无法支撑 DVP 摄像头。建议更换为 ESP32-S3。`);
+        return alert(`❌ 资源不足：${boardConfig.boardName} 的引脚数量较少，无法支撑 DVP 摄像头。`);
     }
     let currentTotal = 0;
     activeModules.forEach(mod => {
@@ -244,5 +222,7 @@ function confirmNegotiation() {
 }
 
 function resetAll() {
-    if(confirm('确定要清空所有配置吗？')) { loadBoard(document.getElementById('board-select').value); }
+    if(confirm('确定要清空所有配置吗？')) { 
+        location.reload();
+    }
 }
