@@ -5,9 +5,12 @@ let boardConfig = null;
 let moduleLibrary = null;
 let pinsState = {}; 
 let activeModules = []; 
-let activeBuses = { I2C: {}, SPI: {} }; 
+let activeBuses = { I2C: {}, SPI: {}, I2S_IN: {}, I2S_OUT: {}, UART: {} }; 
 let pendingModule = null; 
 let pendingOptionalDrops = []; 
+
+// 微调编辑器的暂存状态
+let editingModuleIndex = -1;
 
 // ==========================================
 // 2. 初始化
@@ -60,42 +63,7 @@ function populateModuleSelect() {
 }
 
 // ==========================================
-// 3. 功耗预算计算引擎
-// ==========================================
-function updatePowerBudget() {
-    let totalCurrent = 0;
-    activeModules.forEach(mod => {
-        const modData = moduleLibrary[mod.id];
-        if (modData && modData.peak_current_ma) {
-            totalCurrent += modData.peak_current_ma;
-        }
-    });
-
-    const maxCurrent = boardConfig.max_current_ma || 500;
-    const percentage = Math.min(Math.round((totalCurrent / maxCurrent) * 100), 100);
-    
-    const bar = document.getElementById('power-bar');
-    const text = document.getElementById('power-text');
-
-    if (bar && text) {
-        bar.style.width = `${percentage}%`;
-        text.innerText = `${totalCurrent} mA / ${maxCurrent} mA (${percentage}%)`;
-
-        if (percentage < 70) {
-            bar.style.backgroundColor = '#28a745'; // 绿
-            text.style.color = '#28a745';
-        } else if (percentage < 100) {
-            bar.style.backgroundColor = '#fd7e14'; // 橙
-            text.style.color = '#fd7e14';
-        } else {
-            bar.style.backgroundColor = '#dc3545'; // 红
-            text.style.color = '#dc3545';
-        }
-    }
-}
-
-// ==========================================
-// 4. 渲染逻辑 (主控和模组)
+// 3. 渲染逻辑
 // ==========================================
 function renderPins() {
     const grid = document.getElementById('pin-grid');
@@ -210,7 +178,16 @@ function renderModules() {
     activeModules.forEach((mod, index) => {
         const modDiv = document.createElement('div');
         modDiv.className = 'module-tag';
-        modDiv.innerHTML = `<strong>${moduleLibrary[mod.id].name}</strong> <span>#${index+1}</span>`;
+        // 新增了编辑按钮
+        modDiv.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+                <strong>${moduleLibrary[mod.id].name}</strong> 
+                <div>
+                    <span style="margin-right:10px;">#${index+1}</span>
+                    <button onclick="openEditPanel(${index})" style="background:none; border:none; cursor:pointer; font-size:16px; padding:0; width:auto; margin:0;" title="微调参数">⚙️</button>
+                </div>
+            </div>
+        `;
         list.appendChild(modDiv);
 
         const title = document.createElement('h3');
@@ -241,10 +218,11 @@ function renderModules() {
 
     wiringPanel.style.display = 'block';
     generateCodePreview();
+    updatePowerBudget();
 }
 
 // ==========================================
-// 5. 静默防呆核心分配引擎 (增加功耗拦截)
+// 4. 静默防呆核心分配引擎
 // ==========================================
 function isSafePin(pin, modData, req) {
     if (boardConfig.special_domains && boardConfig.special_domains[pin]) {
@@ -328,20 +306,20 @@ function addModule() {
     const modId = document.getElementById('module-select').value;
     if (!modId) return alert('请先选择模组');
 
-    // ============= 新增：功耗超载拦截 =============
     const modData = moduleLibrary[modId];
     let currentTotal = 0;
     activeModules.forEach(mod => {
-        if(moduleLibrary[mod.id] && moduleLibrary[mod.id].peak_current_ma) currentTotal += moduleLibrary[mod.id].peak_current_ma;
+        const mData = moduleLibrary[mod.id];
+        const c = mod.overrides?.current || mData.peak_current_ma || 0;
+        currentTotal += c;
     });
     const newTotal = currentTotal + (modData.peak_current_ma || 0);
     const maxCurrent = boardConfig.max_current_ma || 500;
 
     if (newTotal > maxCurrent) {
-        const force = confirm(`⚠️ 供电超载拦截\n\n当前系统功耗：${currentTotal} mA\n该模组新增：${modData.peak_current_ma} mA\n总功耗将达到：${newTotal} mA\n\n已超过主控 LDO 安全上限 (${maxCurrent} mA)！\n强行运行可能导致芯片无限重启。\n\n是否已为该模组提供独立外部供电并确认继续？`);
+        const force = confirm(`⚠️ 供电超载拦截\n\n当前系统功耗：${currentTotal} mA\n该模组新增：${modData.peak_current_ma} mA\n总功耗将达到：${newTotal} mA\n\n已超过主控 LDO 安全上限 (${maxCurrent} mA)！\n是否继续添加？`);
         if (!force) return;
     }
-    // =============================================
 
     const existing = activeModules.find(m => m.id === modId);
     if (existing && !confirm(`已经添加了【${moduleLibrary[modId].name}】。\n强行添加可能会导致冲突，确定继续吗？`)) return;
@@ -406,16 +384,15 @@ function commitAllocation(modId, allocations) {
         } else {
             newConnections[signal] = pins.length > 1 ? pins.join(',') : pins[0];
             pins.forEach(p => { pinsState[p] = { state: 'used', owner: modId, signal: signal }; });
-            if (modData.interface && (signal === 'SDA' || signal === 'SCL' || signal === 'MOSI' || signal === 'MISO' || signal === 'SCK')) {
+            if (modData.interface && (signal === 'SDA' || signal === 'SCL' || signal === 'MOSI' || signal === 'MISO' || signal === 'SCK' || signal === 'BCLK' || signal === 'LRC')) {
                 if (!activeBuses[modData.interface]) activeBuses[modData.interface] = {};
                 activeBuses[modData.interface][signal] = Number(pins[0]);
             }
         }
     }
-    activeModules.push({ id: modId, interface: modData.interface, connections: newConnections });
+    activeModules.push({ id: modId, interface: modData.interface, connections: newConnections, overrides: {} });
     renderPins();
     renderModules();
-    updatePowerBudget(); // 提交后更新电量条
 }
 
 function releasePin(pinNum) {
@@ -425,14 +402,14 @@ function releasePin(pinNum) {
         const modIndex = activeModules.findIndex(m => m.id === ownerId && Object.values(m.connections).some(val => String(val).split(',').includes(String(pinNum))));
         if (modIndex > -1) {
             activeModules.splice(modIndex, 1);
-            activeBuses = { I2C: {}, SPI: {} };
+            activeBuses = { I2C: {}, SPI: {}, I2S_IN: {}, I2S_OUT: {}, UART: {} };
             initPins();
             activeModules.forEach(mod => {
                 for (const [signal, pinStr] of Object.entries(mod.connections)) {
                     if (pinStr === "dropped") continue;
                     String(pinStr).split(',').forEach(p => {
                         pinsState[p] = { state: 'used', owner: mod.id, signal: signal };
-                        if (mod.interface && (signal === 'SDA' || signal === 'SCL' || signal === 'MOSI' || signal === 'MISO' || signal === 'SCK')) {
+                        if (mod.interface && (signal === 'SDA' || signal === 'SCL' || signal === 'MOSI' || signal === 'MISO' || signal === 'SCK' || signal === 'BCLK' || signal === 'LRC')) {
                             activeBuses[mod.interface][signal] = Number(p);
                         }
                     });
@@ -440,20 +417,54 @@ function releasePin(pinNum) {
             });
             renderPins();
             renderModules();
-            updatePowerBudget(); // 释放后更新电量条
         }
     }
 }
 
 function resetAll() {
     if(confirm('确定要清空所有配置吗？')) {
-        activeModules = []; activeBuses = { I2C: {}, SPI: {} };
+        activeModules = []; activeBuses = { I2C: {}, SPI: {}, I2S_IN: {}, I2S_OUT: {}, UART: {} };
         initPins(); renderPins(); renderModules(); updatePowerBudget();
     }
 }
 
 // ==========================================
-// 6. 导出与代码生成 (保持不变)
+// 5. 功耗预算计算引擎
+// ==========================================
+function updatePowerBudget() {
+    let totalCurrent = 0;
+    activeModules.forEach(mod => {
+        const modData = moduleLibrary[mod.id];
+        // 优先使用用户微调的电流值
+        const current = mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0);
+        totalCurrent += current;
+    });
+
+    const maxCurrent = boardConfig.max_current_ma || 500;
+    const percentage = Math.min(Math.round((totalCurrent / maxCurrent) * 100), 100);
+    
+    const bar = document.getElementById('power-bar');
+    const text = document.getElementById('power-text');
+
+    if (bar && text) {
+        bar.style.width = `${percentage}%`;
+        text.innerText = `${totalCurrent} mA / ${maxCurrent} mA (${percentage}%)`;
+
+        if (percentage < 70) {
+            bar.style.backgroundColor = '#28a745';
+            text.style.color = '#28a745';
+        } else if (percentage < 100) {
+            bar.style.backgroundColor = '#fd7e14';
+            text.style.color = '#fd7e14';
+        } else {
+            bar.style.backgroundColor = '#dc3545';
+            text.style.color = '#dc3545';
+        }
+    }
+}
+
+// ==========================================
+// 6. 导出与代码生成
 // ==========================================
 function generateCodePreview() {
     let code = `/*\n * 自动生成\n * 平台: ${boardConfig.boardName}\n */\n\n#ifndef PIN_CONFIG_H\n#define PIN_CONFIG_H\n\n`;
@@ -514,7 +525,7 @@ function importConfig(event) {
             const importedData = JSON.parse(e.target.result);
             if (!Array.isArray(importedData)) throw new Error("格式错误");
             activeModules = [];
-            activeBuses = { I2C: {}, SPI: {} };
+            activeBuses = { I2C: {}, SPI: {}, I2S_IN: {}, I2S_OUT: {}, UART: {} };
             initPins();
             importedData.forEach(mod => {
                 if (moduleLibrary[mod.id]) {
@@ -524,7 +535,7 @@ function importConfig(event) {
                         String(pinStr).split(',').forEach(p => {
                             const pinNum = Number(p);
                             if (pinsState[pinNum]) pinsState[pinNum] = { state: 'used', owner: mod.id, signal: signal };
-                            if (mod.interface && ['SDA', 'SCL', 'MOSI', 'MISO', 'SCK'].includes(signal)) {
+                            if (mod.interface && ['SDA', 'SCL', 'MOSI', 'MISO', 'SCK', 'BCLK', 'LRC'].includes(signal)) {
                                 if (!activeBuses[mod.interface]) activeBuses[mod.interface] = {};
                                 activeBuses[mod.interface][signal] = pinNum;
                             }
@@ -541,4 +552,155 @@ function importConfig(event) {
         event.target.value = ''; 
     };
     reader.readAsText(file);
+}
+
+// ==========================================
+// 7. 微调面板 UI 与逻辑 (新增)
+// ==========================================
+function openEditPanel(index) {
+    editingModuleIndex = index;
+    const mod = activeModules[index];
+    const modData = moduleLibrary[mod.id];
+
+    // 1. 填充电流
+    const currentVal = mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0);
+    document.getElementById('edit-current').value = currentVal;
+    document.getElementById('edit-current').placeholder = `默认: ${modData.peak_current_ma || 0} mA`;
+
+    // 2. 填充引脚数量 (针对有批量引脚的需求，如 D0-D7)
+    const pinCountSelect = document.getElementById('edit-pin-count');
+    pinCountSelect.innerHTML = '';
+    
+    // 找到当前模组是否有批量需求
+    const batchReq = modData.requirements.find(r => r.count > 1);
+    const countContainer = document.getElementById('pin-count-container');
+    
+    if (batchReq) {
+        countContainer.style.display = 'block';
+        document.getElementById('pin-count-label').innerText = `${batchReq.signal} 数量裁剪:`;
+        
+        for (let i = 1; i <= batchReq.count; i++) {
+            const option = document.createElement('option');
+            option.value = i;
+            option.textContent = `${i} 根`;
+            // 检查当前分配了多少根
+            const currentAssignedCount = String(mod.connections[batchReq.signal] || "").split(',').filter(x => x && x !== "dropped").length;
+            if (currentAssignedCount === i) option.selected = true;
+            pinCountSelect.appendChild(option);
+        }
+    } else {
+        countContainer.style.display = 'none';
+    }
+
+    // 3. 渲染引脚自动重排列表
+    const pinListContainer = document.getElementById('edit-pin-list');
+    pinListContainer.innerHTML = '';
+    
+    for (const [signal, pinStr] of Object.entries(mod.connections)) {
+        if (pinStr === "dropped") continue;
+        
+        const pinDiv = document.createElement('div');
+        pinDiv.style.cssText = "display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding:5px; background:#f8f9fa; border-radius:4px;";
+        pinDiv.innerHTML = `
+            <span><strong>${signal}</strong> ➡ GPIO ${pinStr}</span>
+            <button onclick="autoReroutePin('${signal}')" style="background:#007bff; color:white; padding:3px 8px; border-radius:4px; border:none; cursor:pointer; width:auto; margin:0; font-size:12px;">🔄 换一个</button>
+        `;
+        pinListContainer.appendChild(pinDiv);
+    }
+
+    document.getElementById('edit-modal').style.display = 'flex';
+}
+
+function closeEditPanel() {
+    document.getElementById('edit-modal').style.display = 'none';
+    editingModuleIndex = -1;
+}
+
+function autoReroutePin(signal) {
+    const mod = activeModules[editingModuleIndex];
+    const modData = moduleLibrary[mod.id];
+
+    // 1. 找到当前占用的引脚并将其释放
+    const currentPins = String(mod.connections[signal]).split(',').map(Number);
+    currentPins.forEach(p => {
+        if (pinsState[p]) pinsState[p] = { state: 'free', label: 'Free' };
+    });
+
+    // 2. 清理旧的分配记录
+    delete mod.connections[signal];
+    if (modData.interface && activeBuses[modData.interface] && activeBuses[modData.interface][signal]) {
+        delete activeBuses[modData.interface][signal];
+    }
+
+    // 3. 尝试重新分配这一个信号
+    const req = modData.requirements.find(r => r.signal === signal);
+    
+    // 临时构建一个可用状态副本
+    let pinsStateCopy = {};
+    for (let i = 0; i <= 48; i++) { if(pinsState[i]) pinsStateCopy[i] = pinsState[i].state; }
+
+    let allocated = [];
+    // 走一遍分配逻辑
+    if (modData.interface && boardConfig.defaultInterfaces[modData.interface] && boardConfig.defaultInterfaces[modData.interface][signal]) {
+        const dp = boardConfig.defaultInterfaces[modData.interface][signal];
+        if (pinsStateCopy[dp] === 'free' && isSafePin(dp, modData, req)) {
+            allocated.push(dp);
+            pinsStateCopy[dp] = 'used';
+        }
+    }
+    if (allocated.length === 0) {
+        for (let i = 0; i <= 48; i++) {
+            if (pinsStateCopy[i] === 'free' && isSafePin(i, modData, req)) {
+                allocated.push(i);
+                break;
+            }
+        }
+    }
+
+    if (allocated.length > 0) {
+        // 4. 写回全局状态并渲染
+        mod.connections[signal] = allocated.join(',');
+        allocated.forEach(p => { pinsState[p] = { state: 'used', owner: mod.id, signal: signal }; });
+        renderPins();
+        renderModules();
+        openEditPanel(editingModuleIndex); // 刷新面板UI
+    } else {
+        alert(`找不到其他空闲且安全的引脚给 ${signal} 了！`);
+        // 恢复原有引脚
+        currentPins.forEach(p => { pinsState[p] = { state: 'used', owner: mod.id, signal: signal }; });
+        renderPins();
+    }
+}
+
+function saveModuleParams() {
+    const newCurrent = Number(document.getElementById('edit-current').value);
+    const mod = activeModules[editingModuleIndex];
+    const modData = moduleLibrary[mod.id];
+    
+    mod.overrides = mod.overrides || {};
+    mod.overrides.current = newCurrent;
+
+    // 处理引脚数量裁剪
+    const batchReq = modData.requirements.find(r => r.count > 1);
+    const countContainer = document.getElementById('pin-count-container');
+    if (batchReq && countContainer.style.display !== 'none') {
+        const targetCount = Number(document.getElementById('edit-pin-count').value);
+        let currentPins = String(mod.connections[batchReq.signal] || "").split(',').filter(x => x && x !== "dropped");
+        
+        if (targetCount < currentPins.length) {
+            // 释放多余引脚
+            const toDrop = currentPins.splice(targetCount);
+            toDrop.forEach(p => {
+                if (pinsState[Number(p)]) pinsState[Number(p)] = { state: 'free', label: 'Free' };
+            });
+            mod.connections[batchReq.signal] = currentPins.join(',');
+        } else if (targetCount > currentPins.length) {
+            alert("目前仅支持裁剪引脚数量，暂不支持微调面板内自动增配引脚。请重置后重新分配。");
+        }
+    }
+
+    renderPins();
+    renderModules();
+    updatePowerBudget();
+    closeEditPanel();
 }
