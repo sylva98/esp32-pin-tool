@@ -25,7 +25,6 @@ document.addEventListener('DOMContentLoaded', () => {
         boardSelect.style.display = 'block';
         boardSelect.disabled = false;
         
-        // 🔥 修复：将左侧下拉框文字强制居中
         boardSelect.style.height = '42px';
         boardSelect.style.padding = '0 10px';
         boardSelect.style.boxSizing = 'border-box';
@@ -172,7 +171,15 @@ function renderModules() {
     
     list.innerHTML = ''; wiringList.innerHTML = '';
     
-    // 🔥 修复：统一两个提示框的样式，使用 Flex 布局强制对齐
+    // 计算总功耗
+    let totalCurrent = 0;
+    activeModules.forEach(mod => {
+        const mData = moduleLibrary[mod.id];
+        totalCurrent += (mod.overrides?.current !== undefined ? mod.overrides.current : (mData.peak_current_ma || 0));
+    });
+    const maxCurrent = boardConfig.max_current_ma || 500;
+    const isOverload = totalCurrent > maxCurrent;
+
     if (typeof checkHighSpeedWarning === 'function' && checkHighSpeedWarning()) {
         const hwWarning = document.createElement('div');
         hwWarning.style.cssText = "font-size: 13px; color: #856404; background-color: #fff3cd; border: 1px solid #ffeeba; padding: 12px; border-radius: 6px; margin-bottom: 10px; display: flex; align-items: center; line-height: 1.5;";
@@ -186,11 +193,14 @@ function renderModules() {
     wiringList.appendChild(smartTip);
     
     activeModules.forEach((mod, index) => {
+        const modData = moduleLibrary[mod.id];
+        const modCurrent = mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0);
+        
         const modDiv = document.createElement('div');
         modDiv.className = 'module-tag';
         modDiv.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
-                <strong>${moduleLibrary[mod.id].name}</strong> 
+                <strong>${modData.name}</strong> 
                 <div>
                     <span style="margin-right:10px;">#${index+1}</span>
                     <button onclick="openEditPanel(${index})" style="background:none; border:none; cursor:pointer; font-size:16px; padding:0; width:auto; margin:0;" title="微调参数">⚙️</button>
@@ -200,10 +210,11 @@ function renderModules() {
         list.appendChild(modDiv);
         
         const title = document.createElement('h3');
-        title.innerText = `${moduleLibrary[mod.id].name} (实例 #${index+1})`;
+        title.innerText = `${modData.name} (实例 #${index+1})`;
         title.style.fontSize = '1rem'; title.style.marginTop = '15px';
         wiringList.appendChild(title);
         
+        // 渲染信号线
         for (const [signal, pinNum] of Object.entries(mod.connections)) {
             const item = document.createElement('div');
             item.className = 'connection-item';
@@ -215,6 +226,27 @@ function renderModules() {
                 item.innerHTML = `<strong>${signal}</strong> <span style="margin: 0 10px;">➡</span> <span style="color:var(--pin-fixed); font-weight:bold; font-size:1.1rem;">GPIO ${pinNum}</span> ${isShared ? '<span style="font-size:10px; color:#888; margin-left:10px;">(总线共享)</span>' : ''}`;
             }
             wiringList.appendChild(item);
+        }
+
+        // 🔥 新增：渲染物理电源线
+        if (modData.power_pins && modData.power_pins.length > 0) {
+            modData.power_pins.forEach(p => {
+                const item = document.createElement('div');
+                item.className = 'connection-item';
+                // 如果超载，或者要求接外部电源（比如 5V），给个红色高亮背景
+                const isDangerousPower = isOverload || p.connect_to === '5V';
+                
+                if (isDangerousPower) {
+                    item.style.backgroundColor = '#fff3f3';
+                    item.style.borderColor = '#dc3545';
+                    item.style.marginTop = '5px';
+                    item.innerHTML = `<strong style="color:#dc3545;">${p.pin}</strong> <span style="margin: 0 10px;">➡</span> <strong style="color:#dc3545;">${p.connect_to}</strong> <span style="font-size:11px; color:#dc3545; margin-left:10px;">(${p.warning})</span>`;
+                } else {
+                    item.style.backgroundColor = '#f8f9fa';
+                    item.innerHTML = `<strong>${p.pin}</strong> <span style="margin: 0 10px;">➡</span> <strong style="color:var(--pin-fixed);">${p.connect_to}</strong> <span style="font-size:11px; color:#888; margin-left:10px;">(${p.warning})</span>`;
+                }
+                wiringList.appendChild(item);
+            });
         }
     });
     
@@ -244,7 +276,17 @@ function addModule() {
     const maxCurrent = boardConfig.max_current_ma || 500;
     
     if (newTotal > maxCurrent) {
-        if (!confirm(`⚠️ 供电超载拦截\n\n总功耗将达到：${newTotal} mA\n已超过主控 LDO 安全上限 (${maxCurrent} mA)！\n是否继续添加？`)) return;
+        const choice = confirm(
+            `⚠️ 供电超载警告\n\n` +
+            `当前系统总功耗：${currentTotal} mA\n` +
+            `添加该模组后：${newTotal} mA\n` +
+            `主控安全上限：${maxCurrent} mA\n\n` +
+            `【后果】若继续从主板取电，可能会触发电压保护，导致设备无限重启。\n\n` +
+            `【方案 1】如果您能在软件/硬件上限制功耗（如调小音量、调暗背光），请点“确定”，然后在左侧模组旁边的 ⚙️ 微调面板中降低电流预估。\n\n` +
+            `【方案 2】如果您打算给该模组接外部独立电源，请点“确定”，稍后查看接线指导。\n\n` +
+            `是否继续添加？`
+        );
+        if (!choice) return;
     }
     
     if (activeModules.find(m => m.id === modId) && !confirm(`已经添加了【${moduleLibrary[modId].name}】。\n强行添加可能会导致冲突，确定继续吗？`)) return;

@@ -40,6 +40,11 @@ function generateCodePreview() {
                     } else { code += `#define ${prefix}_${sig}  ${pinStr}\n`; }
                 }
             });
+            // 代码层降功耗注释
+            const modCurrent = mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0);
+            if (modCurrent > 100) {
+                 code += `\n// ⚠️ 【供电警告】该模组峰值功耗较高（${modCurrent}mA），请确保使用外部电源供电并与主控共地。\n// 若设备发生重启（Brownout），请尝试在代码中降低输出（如降低音量/亮度）。\n`;
+            }
             code += `\n`;
         }
     });
@@ -50,6 +55,16 @@ function generateCodePreview() {
 
 function printWiringSheet() {
     if (activeModules.length === 0) { return alert('当前没有接入任何模组，无需打印。'); }
+    
+    // 计算总功耗，用于判断是否超标
+    let totalCurrent = 0;
+    activeModules.forEach(mod => {
+        const mData = moduleLibrary[mod.id];
+        totalCurrent += (mod.overrides?.current !== undefined ? mod.overrides.current : (mData.peak_current_ma || 0));
+    });
+    const maxCurrent = boardConfig.max_current_ma || 500;
+    const isOverload = totalCurrent > maxCurrent;
+
     const printSection = document.getElementById('print-section');
     let html = `
         <div class="print-header">
@@ -69,8 +84,11 @@ function printWiringSheet() {
             </div>
         `;
     }
+    
     activeModules.forEach((mod, index) => {
         const modData = moduleLibrary[mod.id];
+        const modCurrent = mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0);
+        
         html += `
             <div class="print-module-block">
                 <div class="print-module-name">${index + 1}. ${modData.name}</div>
@@ -87,8 +105,22 @@ function printWiringSheet() {
                 html += `<tr><td style="text-align: center;"><div class="print-checkbox"></div></td><td><strong>${signal}</strong></td><td>GPIO ${pinNum} ${note}</td></tr>`;
             }
         }
-        html += `</tbody></table></div>`;
+        html += `</tbody></table>`;
+
+        // 🔥 打印单上的外部供电强提醒
+        if (isOverload || modCurrent > 100) {
+            html += `
+                <div style="border: 2px solid #dc3545; background: #fff3f3; padding: 10px; margin-bottom: 25px; font-size: 14px; color: #333;">
+                    <strong style="color: #dc3545;">🔴 【外部供电与共地强制说明】</strong><br>
+                    1. 请将模组的 <strong>VCC (电源正极)</strong> 接至外部独立 5V 电源（<strong>严禁</strong>接 ESP32）。<br>
+                    2. 请将外部电源的 <strong>GND (负极)</strong> 与 ESP32 的 <strong>GND</strong> 连在一起（<strong>必须共地</strong>）。
+                </div>
+            `;
+        }
+        
+        html += `</div>`;
     });
+    
     html += `
         <div class="print-footer">
             接线人签字：____________________ &nbsp;&nbsp;&nbsp;&nbsp; 检查人签字：____________________ &nbsp;&nbsp;&nbsp;&nbsp; 日期：____________________

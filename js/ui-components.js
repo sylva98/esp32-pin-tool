@@ -14,7 +14,6 @@ function initCombobox() {
 
     renderComboboxOptions();
     
-    // 点击空白处关闭面板
     document.addEventListener('click', (e) => {
         const wrapper = document.getElementById('module-combobox');
         if (wrapper && !wrapper.contains(e.target)) { document.getElementById('combobox-panel').classList.remove('show'); }
@@ -80,6 +79,30 @@ function openEditPanel(index) {
     const currentVal = mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0);
     document.getElementById('edit-current').value = currentVal;
     document.getElementById('edit-current').placeholder = `默认: ${modData.peak_current_ma || 0} mA`;
+
+    // 🔥 新增：在微调面板里加入灵魂拷问警告
+    const warningContainerId = 'edit-physics-warning';
+    let warningContainer = document.getElementById(warningContainerId);
+    
+    if (!warningContainer) {
+        warningContainer = document.createElement('div');
+        warningContainer.id = warningContainerId;
+        warningContainer.style.cssText = "background: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 10px; border-radius: 4px; font-size: 12px; margin-bottom: 15px; line-height: 1.5;";
+        
+        // 插入到电流输入框之后
+        const currentInput = document.getElementById('edit-current');
+        currentInput.parentNode.insertBefore(warningContainer, currentInput.nextSibling);
+    }
+    
+    if (modData.peak_current_ma > 100) {
+        warningContainer.style.display = 'block';
+        warningContainer.innerHTML = `
+            ⚠️ <strong>物理防呆提示：</strong><br>
+            降低此数值<strong>不能改变模组本身的物理耗电</strong>。若您将数值改小以通过预算检查，您<strong>必须</strong>在代码或硬件上采取限制措施（如限制音量/亮度），否则设备仍会因供电不足而死机。强烈建议使用外部独立电源。
+        `;
+    } else {
+        warningContainer.style.display = 'none';
+    }
 
     // 填充引脚数量裁剪
     const pinCountSelect = document.getElementById('edit-pin-count');
