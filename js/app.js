@@ -10,8 +10,13 @@ let pendingModule = null;
 let pendingOptionalDrops = []; 
 let editingModuleIndex = -1;
 
+// 高级组合框状态
+let currentCategory = 'ALL';
+let currentSearch = '';
+let selectedModuleId = '';
+
 // ==========================================
-// 2. 初始化与筛选逻辑
+// 2. 初始化与高级组合框逻辑
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     try {
@@ -20,8 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         document.getElementById('board-title').innerText = boardConfig.boardName;
         initPins();
-        initCategorySelect();
-        updateModuleSelect();
+        initCombobox();
         
         if (typeof initDiagnosticsEngine === 'function') {
             initDiagnosticsEngine(); 
@@ -51,44 +55,87 @@ function initPins() {
     }
 }
 
-function initCategorySelect() {
-    const catSelect = document.getElementById('module-category');
+// --- 组合框逻辑 ---
+function initCombobox() {
+    // 1. 生成分类页签
+    const tabsContainer = document.getElementById('combobox-tabs');
     const categories = new Set();
     Object.values(moduleLibrary).forEach(mod => {
         if (mod.category) categories.add(mod.category);
     });
     
-    catSelect.innerHTML = '<option value="ALL">-- 全部分类 --</option>';
+    let tabHtml = `<div class="custom-tab active" data-cat="ALL" onclick="switchCategory('ALL')">全部</div>`;
     categories.forEach(cat => {
-        const option = document.createElement('option');
-        option.value = cat;
-        option.textContent = cat;
-        catSelect.appendChild(option);
+        tabHtml += `<div class="custom-tab" data-cat="${cat}" onclick="switchCategory('${cat}')">${cat}</div>`;
+    });
+    tabsContainer.innerHTML = tabHtml;
+
+    renderComboboxOptions();
+    
+    // 2. 点击空白处关闭面板
+    document.addEventListener('click', (e) => {
+        const wrapper = document.getElementById('module-combobox');
+        if (wrapper && !wrapper.contains(e.target)) {
+            document.getElementById('combobox-panel').classList.remove('show');
+        }
     });
 }
 
-function updateModuleSelect() {
-    const cat = document.getElementById('module-category').value;
-    const search = document.getElementById('module-search').value.toLowerCase();
-    const select = document.getElementById('module-select');
-    
-    select.innerHTML = '<option value="">-- 选择外设模组 --</option>';
-    
-    for (const [key, data] of Object.entries(moduleLibrary)) {
-        const matchCat = (cat === 'ALL' || data.category === cat);
-        const matchSearch = (data.name.toLowerCase().includes(search) || key.toLowerCase().includes(search));
-        
-        if (matchCat && matchSearch) {
-            const option = document.createElement('option');
-            option.value = key;
-            option.textContent = data.name;
-            select.appendChild(option);
-        }
+function toggleCombobox() {
+    const panel = document.getElementById('combobox-panel');
+    panel.classList.toggle('show');
+    if (panel.classList.contains('show')) {
+        document.getElementById('combobox-search').focus();
     }
 }
 
-function filterModules() {
-    updateModuleSelect();
+function switchCategory(cat) {
+    currentCategory = cat;
+    document.querySelectorAll('.custom-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.cat === cat);
+    });
+    renderComboboxOptions();
+}
+
+function filterComboboxOptions() {
+    currentSearch = document.getElementById('combobox-search').value.toLowerCase();
+    renderComboboxOptions();
+}
+
+function renderComboboxOptions() {
+    const optionsContainer = document.getElementById('combobox-options');
+    optionsContainer.innerHTML = '';
+    
+    let count = 0;
+    for (const [key, data] of Object.entries(moduleLibrary)) {
+        const matchCat = (currentCategory === 'ALL' || data.category === currentCategory);
+        const matchSearch = (data.name.toLowerCase().includes(currentSearch) || key.toLowerCase().includes(currentSearch));
+        
+        if (matchCat && matchSearch) {
+            const div = document.createElement('div');
+            div.className = 'custom-option';
+            if (key === selectedModuleId) div.style.background = '#e2e6ea';
+            
+            div.innerText = data.name;
+            div.onclick = () => selectModule(key, data.name);
+            optionsContainer.appendChild(div);
+            count++;
+        }
+    }
+    
+    if (count === 0) {
+        optionsContainer.innerHTML = '<div style="padding:10px; text-align:center; color:#888; font-size:12px;">未找到匹配的模组</div>';
+    }
+}
+
+function selectModule(key, name) {
+    selectedModuleId = key;
+    document.getElementById('combobox-text').innerText = name;
+    document.getElementById('combobox-text').style.color = '#333';
+    document.getElementById('combobox-panel').classList.remove('show');
+    document.getElementById('combobox-search').value = ''; 
+    currentSearch = '';
+    renderComboboxOptions();
 }
 
 // ==========================================
@@ -331,7 +378,7 @@ function tryAllocate(modData, pinsStateCopy) {
 }
 
 function addModule() {
-    const modId = document.getElementById('module-select').value;
+    const modId = selectedModuleId;
     if (!modId) return alert('请先选择模组');
 
     const modData = moduleLibrary[modId];
