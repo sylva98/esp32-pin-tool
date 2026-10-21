@@ -25,6 +25,12 @@ document.addEventListener('DOMContentLoaded', () => {
         boardSelect.style.display = 'block';
         boardSelect.disabled = false;
         
+        // 🔥 修复：将左侧下拉框文字强制居中
+        boardSelect.style.height = '42px';
+        boardSelect.style.padding = '0 10px';
+        boardSelect.style.boxSizing = 'border-box';
+        boardSelect.style.lineHeight = '42px';
+        
         for (const [key, data] of Object.entries(globalBoards)) {
             const option = document.createElement('option');
             option.value = key;
@@ -166,16 +172,17 @@ function renderModules() {
     
     list.innerHTML = ''; wiringList.innerHTML = '';
     
+    // 🔥 修复：统一两个提示框的样式，使用 Flex 布局强制对齐
     if (typeof checkHighSpeedWarning === 'function' && checkHighSpeedWarning()) {
         const hwWarning = document.createElement('div');
-        hwWarning.style.cssText = "font-size:13px; color:#856404; background-color:#fff3cd; border:1px solid #ffeeba; padding:10px; border-radius:4px; margin-bottom:15px; font-weight:bold;";
-        hwWarning.innerHTML = `⚠️ <strong>物理走线警告</strong>：您的项目使用了 SPI/I2S 等高频信号引脚。请确保排线长度不超过 10cm，且信号线尽量分开或包地。`;
+        hwWarning.style.cssText = "font-size: 13px; color: #856404; background-color: #fff3cd; border: 1px solid #ffeeba; padding: 12px; border-radius: 6px; margin-bottom: 10px; display: flex; align-items: center; line-height: 1.5;";
+        hwWarning.innerHTML = `<span style="font-size: 16px; margin-right: 8px;">⚠️</span> <div><strong>物理走线警告：</strong>您的项目使用了 SPI/I2S 等高频信号引脚。请确保排线长度不超过 10cm，且信号线尽量分开或包地。</div>`;
         wiringList.appendChild(hwWarning);
     }
     
     const smartTip = document.createElement('div');
-    smartTip.style.cssText = "font-size:12px; color:#28a745; margin-bottom:15px; background:#e8f5e9; padding:8px; border-radius:4px;";
-    smartTip.innerHTML = `💡 <strong>智能避雷生效</strong>：已在后台自动过滤“5V烧板风险”、“启动引脚电平冲突”、“高频串扰”及“ADC2-WiFi冲突”。`;
+    smartTip.style.cssText = "font-size: 13px; color: #155724; background-color: #d4edda; border: 1px solid #c3e6cb; padding: 12px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; line-height: 1.5;";
+    smartTip.innerHTML = `<span style="font-size: 16px; margin-right: 8px;">💡</span> <div><strong>智能避雷生效：</strong>已在后台自动过滤“5V烧板风险”、“启动引脚电平冲突”、“高频串扰”及“ADC2-WiFi冲突”。</div>`;
     wiringList.appendChild(smartTip);
     
     activeModules.forEach((mod, index) => {
