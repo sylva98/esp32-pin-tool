@@ -5,9 +5,9 @@ window.globalBoards = {
         "power_rails": { "5V": false, "3.3V": true },
         "max_current_ma": 450,
         "max_pin": 48,
-        "fixedPins": [1, 2, 3, 13, 14, 19, 20, 31, 32, 33, 34, 35, 36, 37, 41],
+        "fixedPins": [1, 2, 3, 13, 14, 19, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 41],
         "strappingPins": {
-            "0": { "required_level": "HIGH", "reason": "下载模式选择" },
+            "0": { "required_level": "HIGH", "reason": "启动模式选择" },
             "3": { "required_level": "HIGH", "reason": "JTAG 信号源选择" },
             "45": { "required_level": "LOW", "reason": "VDD_SPI 电压选择" },
             "46": { "required_level": "LOW", "reason": "启动模式选择" }
@@ -41,11 +41,11 @@ window.globalBoards = {
         "power_rails": { "5V": false, "3.3V": true },
         "max_current_ma": 400,
         "max_pin": 21,
-        "fixedPins": [11, 12, 13, 14, 15, 16, 17], // 内部 Flash 占用（典型）
+        "fixedPins": [11, 12, 13, 14, 15, 16, 17], 
         "strappingPins": {
-            "2": { "required_level": "HIGH", "reason": "下载模式" },
-            "8": { "required_level": "HIGH", "reason": "启动模式" },
-            "9": { "required_level": "HIGH", "reason": "启动模式" }
+            "2": { "required_level": "HIGH", "reason": "启动模式选择（浮空）" },
+            "8": { "required_level": "HIGH", "reason": "启动模式选择（不可与GPIO9同时为低）" },
+            "9": { "required_level": "HIGH", "reason": "启动模式选择（默认上拉）" }
         },
         "special_domains": {},
         "availableGpios": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 18, 19, 20, 21],
@@ -71,9 +71,9 @@ window.globalBoards = {
         "max_pin": 46,
         "fixedPins": [22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46],
         "strappingPins": {
-            "0": { "required_level": "HIGH", "reason": "下载模式" },
-            "45": { "required_level": "LOW", "reason": "VDD_SPI 电压" },
-            "46": { "required_level": "LOW", "reason": "启动模式" }
+            "0": { "required_level": "HIGH", "reason": "启动模式选择（默认上拉）" },
+            "45": { "required_level": "LOW", "reason": "VDD_SPI 电压选择（默认下拉）" },
+            "46": { "required_level": "LOW", "reason": "仅输入引脚，启动模式相关，不可输出" }
         },
         "special_domains": {},
         "availableGpios": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
