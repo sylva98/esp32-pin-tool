@@ -6,7 +6,7 @@
     <title>ESP32 引脚智能配置系统</title>
     <link rel="stylesheet" href="css/style.css">
     <style>
-        /* 高级组合下拉框样式 (上下统一) */
+        /* 高级组合下拉框（自定义搜索框）样式 */
         .custom-select-wrapper { position: relative; width: 100%; }
         .custom-select-display {
             width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px;
@@ -57,21 +57,21 @@
 </head>
 <body>
     <div class="sidebar">
-        <!-- 1. 当前主控型号 -->
+        <!-- 1. 主控型号选择 -->
         <div style="margin-bottom: 20px;">
             <label style="font-size: 13px; font-weight: bold; color: #333; display: block; margin-bottom: 8px;">当前主控型号：</label>
-            <!-- 用同样的 custom-select-display 结构包裹原生 select -->
-            <div class="custom-select-display" style="padding: 0; overflow: hidden;">
-                <select id="board-select" onchange="switchBoard()" style="width: 100%; height: 100%; padding: 10px; border: none; outline: none; background: transparent; font-size: 14px; color: #333; cursor: pointer; appearance: none; -webkit-appearance: none; font-family: inherit;">
+            <!-- 用 custom-select-display 包裹原生 select，完美解决居中与边框问题 -->
+            <div class="custom-select-display" style="padding: 0; position: relative;">
+                <select id="board-select" onchange="switchBoard()" style="width: 100%; height: 40px; padding: 0 30px 0 10px; border: none; outline: none; background: transparent; font-size: 14px; color: #333; cursor: pointer; appearance: none; -webkit-appearance: none; font-family: inherit;">
                 </select>
                 <span style="font-size: 10px; color: #888; position: absolute; right: 12px; pointer-events: none;">▼</span>
             </div>
         </div>
 
-        <!-- 隐藏掉之前多余的文字 -->
+        <!-- 隐藏掉之前多余的标题 -->
         <h2 id="board-title" style="display: none;"></h2>
         
-        <!-- 2. 选择外接模组 -->
+        <!-- 2. 外接模组选择 -->
         <div style="margin-bottom: 15px;">
             <label style="font-size: 13px; font-weight: bold; color: #333; display: block; margin-bottom: 8px;">选择外接模组：</label>
             <div class="custom-select-wrapper" id="module-combobox">
@@ -92,7 +92,6 @@
         <!-- 3. 操作按钮 -->
         <button onclick="addModule()" style="width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; transition: background 0.2s; margin-bottom: 20px;">智能分配引脚</button>
 
-        <!-- 去掉横线，直接用 margin 撑开 -->
         <div style="height: 1px; background: var(--border); margin: 0 0 20px 0;"></div>
         
         <!-- 4. 已接入模组列表 -->
