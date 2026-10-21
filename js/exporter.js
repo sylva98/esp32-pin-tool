@@ -40,6 +40,7 @@ function generateCodePreview() {
                     } else { code += `#define ${prefix}_${sig}  ${pinStr}\n`; }
                 }
             });
+            
             // 代码层降功耗注释
             const modCurrent = mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0);
             if (modCurrent > 100) {
@@ -87,7 +88,6 @@ function printWiringSheet() {
     
     activeModules.forEach((mod, index) => {
         const modData = moduleLibrary[mod.id];
-        const modCurrent = mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0);
         
         html += `
             <div class="print-module-block">
@@ -107,15 +107,25 @@ function printWiringSheet() {
         }
         html += `</tbody></table>`;
 
-        // 🔥 打印单上的外部供电强提醒
-        if (isOverload || modCurrent > 100) {
-            html += `
-                <div style="border: 2px solid #dc3545; background: #fff3f3; padding: 10px; margin-bottom: 25px; font-size: 14px; color: #333;">
-                    <strong style="color: #dc3545;">🔴 【外部供电与共地强制说明】</strong><br>
-                    1. 请将模组的 <strong>VCC (电源正极)</strong> 接至外部独立 5V 电源（<strong>严禁</strong>接 ESP32）。<br>
-                    2. 请将外部电源的 <strong>GND (负极)</strong> 与 ESP32 的 <strong>GND</strong> 连在一起（<strong>必须共地</strong>）。
-                </div>
-            `;
+        // 🔥 修复：打印单上的外部供电强提醒。直接复用 power_pins 的配置，不再一刀切写死。
+        if (modData.power_pins && modData.power_pins.length > 0) {
+            const isDanger = isOverload || modData.power_pins.some(p => p.warning.includes('外部') || p.warning.includes('严禁'));
+            if (isDanger) {
+                let powerHtml = `<div style="border: 2px solid #dc3545; background: #fff3f3; padding: 10px; margin-bottom: 25px; font-size: 14px; color: #333;">
+                    <strong style="color: #dc3545;">🔴 【电源接线警告】</strong><br>`;
+                
+                modData.power_pins.forEach(p => {
+                    let displayWarning = p.warning;
+                    if (p.warning.includes('/') && isOverload) {
+                        displayWarning = p.warning.split('/')[1].trim();
+                    } else if (p.warning.includes('/')) {
+                        displayWarning = p.warning.split('/')[0].trim();
+                    }
+                    powerHtml += `- 请将模组的 <strong>${p.pin}</strong> 接至 <strong>${p.connect_to}</strong>（${displayWarning}）。<br>`;
+                });
+                powerHtml += `</div>`;
+                html += powerHtml;
+            }
         }
         
         html += `</div>`;
