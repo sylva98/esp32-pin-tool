@@ -234,19 +234,31 @@ function renderModules() {
                 const item = document.createElement('div');
                 item.className = 'connection-item';
                 
-                // 🔥 核心优化：判断是否真正危险
-                // 默认是灰色的，只有系统超载，或者明确写了“必须外部供电 / 切勿接”才变红
-                const isExplicitExternal = p.warning.includes('外部独立') || p.warning.includes('切勿接');
-                const isDangerousPower = isOverload || isExplicitExternal;
+                // 🔥 核心优化：动态读取 "/" 前后的内容
+                let displayWarning = p.warning;
+                let isDangerousPower = isOverload; // 默认超载才算危险
+
+                if (p.warning.includes('/')) {
+                    const parts = p.warning.split('/');
+                    if (isOverload) {
+                        displayWarning = parts[1].trim(); // 超载取后半段
+                    } else {
+                        displayWarning = parts[0].trim(); // 未超载取前半段
+                        // 如果前半段本身就写了“必须外部”，依然置红
+                        if (displayWarning.includes('必须外部') || displayWarning.includes('严禁接主板')) {
+                            isDangerousPower = true;
+                        }
+                    }
+                }
                 
                 if (isDangerousPower) {
                     item.style.backgroundColor = '#fff3f3';
                     item.style.borderColor = '#dc3545';
                     item.style.marginTop = '5px';
-                    item.innerHTML = `<strong style="color:#dc3545;">${p.pin}</strong> <span style="margin: 0 10px;">➡</span> <strong style="color:#dc3545;">${p.connect_to}</strong> <span style="font-size:11px; color:#dc3545; margin-left:10px;">(${p.warning})</span>`;
+                    item.innerHTML = `<strong style="color:#dc3545;">${p.pin}</strong> <span style="margin: 0 10px;">➡</span> <strong style="color:#dc3545;">${p.connect_to}</strong> <span style="font-size:11px; color:#dc3545; margin-left:10px;">(${displayWarning})</span>`;
                 } else {
                     item.style.backgroundColor = '#f8f9fa';
-                    item.innerHTML = `<strong>${p.pin}</strong> <span style="margin: 0 10px;">➡</span> <strong style="color:var(--pin-fixed);">${p.connect_to}</strong> <span style="font-size:11px; color:#888; margin-left:10px;">(${p.warning})</span>`;
+                    item.innerHTML = `<strong>${p.pin}</strong> <span style="margin: 0 10px;">➡</span> <strong style="color:var(--pin-fixed);">${p.connect_to}</strong> <span style="font-size:11px; color:#888; margin-left:10px;">(${displayWarning})</span>`;
                 }
                 wiringList.appendChild(item);
             });
