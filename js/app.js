@@ -8,12 +8,10 @@ let activeModules = [];
 let activeBuses = { I2C: {}, SPI: {}, I2S_IN: {}, I2S_OUT: {}, UART: {} }; 
 let pendingModule = null; 
 let pendingOptionalDrops = []; 
-
-// 微调编辑器的暂存状态
 let editingModuleIndex = -1;
 
 // ==========================================
-// 2. 初始化
+// 2. 初始化与筛选逻辑
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     try {
@@ -22,7 +20,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         document.getElementById('board-title').innerText = boardConfig.boardName;
         initPins();
-        populateModuleSelect();
+        initCategorySelect();
+        updateModuleSelect();
         
         if (typeof initDiagnosticsEngine === 'function') {
             initDiagnosticsEngine(); 
@@ -52,14 +51,44 @@ function initPins() {
     }
 }
 
-function populateModuleSelect() {
-    const select = document.getElementById('module-select');
-    for (const [key, data] of Object.entries(moduleLibrary)) {
+function initCategorySelect() {
+    const catSelect = document.getElementById('module-category');
+    const categories = new Set();
+    Object.values(moduleLibrary).forEach(mod => {
+        if (mod.category) categories.add(mod.category);
+    });
+    
+    catSelect.innerHTML = '<option value="ALL">-- 全部分类 --</option>';
+    categories.forEach(cat => {
         const option = document.createElement('option');
-        option.value = key;
-        option.textContent = data.name;
-        select.appendChild(option);
+        option.value = cat;
+        option.textContent = cat;
+        catSelect.appendChild(option);
+    });
+}
+
+function updateModuleSelect() {
+    const cat = document.getElementById('module-category').value;
+    const search = document.getElementById('module-search').value.toLowerCase();
+    const select = document.getElementById('module-select');
+    
+    select.innerHTML = '<option value="">-- 选择外设模组 --</option>';
+    
+    for (const [key, data] of Object.entries(moduleLibrary)) {
+        const matchCat = (cat === 'ALL' || data.category === cat);
+        const matchSearch = (data.name.toLowerCase().includes(search) || key.toLowerCase().includes(search));
+        
+        if (matchCat && matchSearch) {
+            const option = document.createElement('option');
+            option.value = key;
+            option.textContent = data.name;
+            select.appendChild(option);
+        }
     }
+}
+
+function filterModules() {
+    updateModuleSelect();
 }
 
 // ==========================================
@@ -178,7 +207,6 @@ function renderModules() {
     activeModules.forEach((mod, index) => {
         const modDiv = document.createElement('div');
         modDiv.className = 'module-tag';
-        // 新增了编辑按钮
         modDiv.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
                 <strong>${moduleLibrary[mod.id].name}</strong> 
@@ -222,7 +250,7 @@ function renderModules() {
 }
 
 // ==========================================
-// 4. 静默防呆核心分配引擎
+// 4. 智能分配与协商逻辑
 // ==========================================
 function isSafePin(pin, modData, req) {
     if (boardConfig.special_domains && boardConfig.special_domains[pin]) {
@@ -435,7 +463,6 @@ function updatePowerBudget() {
     let totalCurrent = 0;
     activeModules.forEach(mod => {
         const modData = moduleLibrary[mod.id];
-        // 优先使用用户微调的电流值
         const current = mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0);
         totalCurrent += current;
     });
@@ -555,23 +582,20 @@ function importConfig(event) {
 }
 
 // ==========================================
-// 7. 微调面板 UI 与逻辑 (新增)
+// 7. 微调面板 UI 与逻辑
 // ==========================================
 function openEditPanel(index) {
     editingModuleIndex = index;
     const mod = activeModules[index];
     const modData = moduleLibrary[mod.id];
 
-    // 1. 填充电流
     const currentVal = mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0);
     document.getElementById('edit-current').value = currentVal;
     document.getElementById('edit-current').placeholder = `默认: ${modData.peak_current_ma || 0} mA`;
 
-    // 2. 填充引脚数量 (针对有批量引脚的需求，如 D0-D7)
     const pinCountSelect = document.getElementById('edit-pin-count');
     pinCountSelect.innerHTML = '';
     
-    // 找到当前模组是否有批量需求
     const batchReq = modData.requirements.find(r => r.count > 1);
     const countContainer = document.getElementById('pin-count-container');
     
@@ -583,7 +607,6 @@ function openEditPanel(index) {
             const option = document.createElement('option');
             option.value = i;
             option.textContent = `${i} 根`;
-            // 检查当前分配了多少根
             const currentAssignedCount = String(mod.connections[batchReq.signal] || "").split(',').filter(x => x && x !== "dropped").length;
             if (currentAssignedCount === i) option.selected = true;
             pinCountSelect.appendChild(option);
@@ -592,7 +615,6 @@ function openEditPanel(index) {
         countContainer.style.display = 'none';
     }
 
-    // 3. 渲染引脚自动重排列表
     const pinListContainer = document.getElementById('edit-pin-list');
     pinListContainer.innerHTML = '';
     
@@ -620,27 +642,22 @@ function autoReroutePin(signal) {
     const mod = activeModules[editingModuleIndex];
     const modData = moduleLibrary[mod.id];
 
-    // 1. 找到当前占用的引脚并将其释放
     const currentPins = String(mod.connections[signal]).split(',').map(Number);
     currentPins.forEach(p => {
         if (pinsState[p]) pinsState[p] = { state: 'free', label: 'Free' };
     });
 
-    // 2. 清理旧的分配记录
     delete mod.connections[signal];
     if (modData.interface && activeBuses[modData.interface] && activeBuses[modData.interface][signal]) {
         delete activeBuses[modData.interface][signal];
     }
 
-    // 3. 尝试重新分配这一个信号
     const req = modData.requirements.find(r => r.signal === signal);
     
-    // 临时构建一个可用状态副本
     let pinsStateCopy = {};
     for (let i = 0; i <= 48; i++) { if(pinsState[i]) pinsStateCopy[i] = pinsState[i].state; }
 
     let allocated = [];
-    // 走一遍分配逻辑
     if (modData.interface && boardConfig.defaultInterfaces[modData.interface] && boardConfig.defaultInterfaces[modData.interface][signal]) {
         const dp = boardConfig.defaultInterfaces[modData.interface][signal];
         if (pinsStateCopy[dp] === 'free' && isSafePin(dp, modData, req)) {
@@ -658,15 +675,13 @@ function autoReroutePin(signal) {
     }
 
     if (allocated.length > 0) {
-        // 4. 写回全局状态并渲染
         mod.connections[signal] = allocated.join(',');
         allocated.forEach(p => { pinsState[p] = { state: 'used', owner: mod.id, signal: signal }; });
         renderPins();
         renderModules();
-        openEditPanel(editingModuleIndex); // 刷新面板UI
+        openEditPanel(editingModuleIndex);
     } else {
         alert(`找不到其他空闲且安全的引脚给 ${signal} 了！`);
-        // 恢复原有引脚
         currentPins.forEach(p => { pinsState[p] = { state: 'used', owner: mod.id, signal: signal }; });
         renderPins();
     }
@@ -680,7 +695,6 @@ function saveModuleParams() {
     mod.overrides = mod.overrides || {};
     mod.overrides.current = newCurrent;
 
-    // 处理引脚数量裁剪
     const batchReq = modData.requirements.find(r => r.count > 1);
     const countContainer = document.getElementById('pin-count-container');
     if (batchReq && countContainer.style.display !== 'none') {
@@ -688,7 +702,6 @@ function saveModuleParams() {
         let currentPins = String(mod.connections[batchReq.signal] || "").split(',').filter(x => x && x !== "dropped");
         
         if (targetCount < currentPins.length) {
-            // 释放多余引脚
             const toDrop = currentPins.splice(targetCount);
             toDrop.forEach(p => {
                 if (pinsState[Number(p)]) pinsState[Number(p)] = { state: 'free', label: 'Free' };
