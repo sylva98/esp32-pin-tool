@@ -6,10 +6,16 @@
 function initCombobox() {
     const tabsContainer = document.getElementById('combobox-tabs');
     const categories = new Set();
-    Object.values(moduleLibrary).forEach(mod => { if (mod.category) categories.add(mod.category); });
+    
+    // 提取所有分类
+    Object.values(moduleLibrary).forEach(mod => { 
+        if (mod.category) categories.add(mod.category); 
+    });
     
     let tabHtml = `<div class="custom-tab active" data-cat="ALL" onclick="switchCategory('ALL')">全部</div>`;
-    categories.forEach(cat => { tabHtml += `<div class="custom-tab" data-cat="${cat}" onclick="switchCategory('${cat}')">${cat}</div>`; });
+    categories.forEach(cat => { 
+        tabHtml += `<div class="custom-tab" data-cat="${cat}" onclick="switchCategory('${cat}')">${cat}</div>`; 
+    });
     tabsContainer.innerHTML = tabHtml;
 
     renderComboboxOptions();
@@ -43,8 +49,15 @@ function renderComboboxOptions() {
     
     let count = 0;
     for (const [key, data] of Object.entries(moduleLibrary)) {
-        // 修复过滤逻辑：如果分类是 ALL，或者数据里的分类和选中的匹配
-        const matchCat = (currentCategory === 'ALL' || data.category === currentCategory);
+        // 最暴力的全匹配过滤逻辑
+        let matchCat = false;
+        if (currentCategory === 'ALL') {
+            matchCat = true;
+        } else {
+            // 去掉可能有隐藏空格的干扰，精准比较
+            matchCat = (data.category.trim() === currentCategory.trim());
+        }
+        
         const matchSearch = (data.name.toLowerCase().includes(currentSearch) || key.toLowerCase().includes(currentSearch));
         
         if (matchCat && matchSearch) {
@@ -57,7 +70,7 @@ function renderComboboxOptions() {
             count++;
         }
     }
-    if (count === 0) { optionsContainer.innerHTML = '<div style="padding:10px; text-align:center; color:#888; font-size:12px;">未找到匹配的模组</div>'; }
+    if (count === 0) { optionsContainer.innerHTML = '<div style="padding:10px; text-align:center; color:#888; font-size:12px;">该分类下暂无模组</div>'; }
 }
 
 function selectModule(key, name) {
