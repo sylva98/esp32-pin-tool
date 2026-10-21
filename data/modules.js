@@ -24,7 +24,7 @@ window.globalModuleData = {
             { "signal": "BLK", "count": 1, "optional": true, "requires_output": true }
         ],
         "power_pins": [
-            { "pin": "VCC", "connect_to": "3.3V", "warning": "建议接主板 3.3V（耗电较大）" },
+            { "pin": "VCC", "connect_to": "3.3V", "warning": "接主板 3.3V（耗电较大）/ 建议接外部独立 3.3V" },
             { "pin": "GND", "connect_to": "GND", "warning": "接主板 GND" }
         ]
     },
@@ -116,8 +116,8 @@ window.globalModuleData = {
             { "signal": "DIN", "count": 1, "optional": false, "high_speed": true, "requires_output": true }
         ],
         "power_pins": [
-            { "pin": "VCC", "connect_to": "5V", "warning": "必须接外部独立 5V（切勿接 3.3V）" },
-            { "pin": "GND", "connect_to": "GND", "warning": "必须与 ESP32 GND 共地" }
+            { "pin": "VCC", "connect_to": "5V", "warning": "可接主板 5V / 超载时必须接外部独立 5V" },
+            { "pin": "GND", "connect_to": "GND", "warning": "接主板 GND / 外部供电时须与主控共地" }
         ]
     },
 
@@ -137,8 +137,8 @@ window.globalModuleData = {
             { "signal": "PWRKEY", "count": 1, "optional": true }
         ],
         "power_pins": [
-            { "pin": "VCC", "connect_to": "5V", "warning": "需外部独立大电流 5V 供电" },
-            { "pin": "GND", "connect_to": "GND", "warning": "必须与 ESP32 GND 共地" }
+            { "pin": "VCC", "connect_to": "5V", "warning": "接主板 5V / 强烈建议外部独立大电流供电" },
+            { "pin": "GND", "connect_to": "GND", "warning": "接主板 GND / 外部供电时须与主控共地" }
         ]
     },
 
@@ -148,7 +148,7 @@ window.globalModuleData = {
         "peak_current_ma": 70,
         "requirements": [{ "signal": "IN", "count": 1, "optional": false, "default_state": "LOW", "requires_output": true }],
         "power_pins": [
-            { "pin": "VCC", "connect_to": "5V", "warning": "接主板 5V 或外部 5V" },
+            { "pin": "VCC", "connect_to": "5V", "warning": "接主板 5V / 外部 5V" },
             { "pin": "GND", "connect_to": "GND", "warning": "接主板 GND" }
         ]
     },
@@ -157,8 +157,8 @@ window.globalModuleData = {
         "peak_current_ma": 700,
         "requirements": [{ "signal": "PWM", "count": 1, "optional": false, "requires_output": true }],
         "power_pins": [
-            { "pin": "VCC", "connect_to": "5V", "warning": "严禁接主板，必须外部独立 5V 供电" },
-            { "pin": "GND", "connect_to": "GND", "warning": "必须与 ESP32 GND 共地" }
+            { "pin": "VCC", "connect_to": "5V", "warning": "接主板 5V / 必须外部独立 5V" },
+            { "pin": "GND", "connect_to": "GND", "warning": "接主板 GND / 外部供电时须与主控共地" }
         ]
     }
 };
