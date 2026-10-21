@@ -228,7 +228,7 @@ function renderModules() {
             wiringList.appendChild(item);
         }
 
-        // 🔥 新增：渲染物理电源线
+        // 渲染物理电源线
         if (modData.power_pins && modData.power_pins.length > 0) {
             modData.power_pins.forEach(p => {
                 const item = document.createElement('div');
