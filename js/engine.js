@@ -6,6 +6,13 @@
  * 检查指定引脚对当前模组信号是否安全 (防呆核心)
  */
 function isSafePin(pin, modData, req, pinsStateCopy) {
+    // 0. 仅输入引脚拦截 (如 ESP32-S2 的 GPIO46)
+    if (boardConfig.strappingPins[pin] && boardConfig.strappingPins[pin].reason.includes('仅输入')) {
+        if (req.requires_output) {
+            return false; 
+        }
+    }
+
     // 1. 特殊电压域校验
     if (boardConfig.special_domains && boardConfig.special_domains[pin]) {
         if (boardConfig.special_domains[pin] !== `${modData.signal_voltage}V`) return false;
@@ -16,16 +23,14 @@ function isSafePin(pin, modData, req, pinsStateCopy) {
         if (!boardConfig.power_rails["5V"]) return false; 
     }
     
-    // 3. 痛点2：Strapping 启动幽灵信号拦截 (极性冲突)
+    // 3. Strapping 启动幽灵信号拦截 (极性冲突)
     if (boardConfig.strappingPins[pin]) {
         const reqLevel = boardConfig.strappingPins[pin].required_level;
-        const modDefaultLevel = req.default_state; // "HIGH" or "LOW"
+        const modDefaultLevel = req.default_state;
 
-        // 如果模组自带电平且与启动引脚要求的电平相反，直接红牌拦截
         if (modDefaultLevel && reqLevel !== modDefaultLevel) {
             return false; 
         }
-        // 即使模组没标电平，自带上下拉也可能引发风险，此时依然要避开，交给兜底逻辑
         if (req.internal_pull) {
             return false;
         }
@@ -63,14 +68,12 @@ function tryAllocate(modData, pinsStateCopy) {
     let missingOptional = [];
     let pinsAllocatedInThisMod = []; 
 
-    // 排序：必选引脚优先分配，可选引脚兜底
     let reqs = [...modData.requirements].sort((a, b) => a.optional === b.optional ? 0 : a.optional ? 1 : -1);
 
     for (const req of reqs) {
         let pinsToAllocate = req.count;
         let allocated = [];
         
-        // 策略 1: 总线复用（例如已有 I2C 则直接共享）
         if (modData.interface && activeBuses[modData.interface] && activeBuses[modData.interface][req.signal]) {
             const existingPin = activeBuses[modData.interface][req.signal];
             if (!pinsAllocatedInThisMod.includes(existingPin)) { 
@@ -80,7 +83,6 @@ function tryAllocate(modData, pinsStateCopy) {
             }
         }
 
-        // 策略 2: 默认接口引脚推荐
         if (pinsToAllocate > 0 && modData.interface && boardConfig.defaultInterfaces[modData.interface]) {
             const defaultPins = boardConfig.defaultInterfaces[modData.interface];
             const dp = defaultPins[req.signal];
@@ -91,7 +93,6 @@ function tryAllocate(modData, pinsStateCopy) {
             }
         }
 
-        // 策略 3: 模组专属推荐引脚
         if (pinsToAllocate > 0 && modData.preferredPins) {
             for (const p of modData.preferredPins) {
                 if (pinsToAllocate <= 0) break;
@@ -103,9 +104,8 @@ function tryAllocate(modData, pinsStateCopy) {
             }
         }
 
-        // 策略 4: 兜底全盘搜索
         if (pinsToAllocate > 0) {
-            for (let i = 0; i <= 48; i++) {
+            for (let i = 0; i <= boardConfig.max_pin; i++) {
                 if (pinsToAllocate <= 0) break;
                 if (pinsStateCopy[i] && pinsStateCopy[i].state === 'free' && !pinsAllocatedInThisMod.includes(i) && isSafePin(i, modData, req, pinsStateCopy)) { 
                     allocated.push(i); 
@@ -115,7 +115,6 @@ function tryAllocate(modData, pinsStateCopy) {
             }
         }
 
-        // 结果判定
         if (pinsToAllocate > 0) {
             if (req.optional) missingOptional.push(req.signal); 
             else missingRequired.push(req.signal);
@@ -147,8 +146,6 @@ function commitAllocation(modId, allocations) {
         }
     }
     activeModules.push({ id: modId, interface: modData.interface, connections: newConnections, overrides: {} });
-    
-    // 触发 UI 重绘
     if (typeof renderPins === 'function') renderPins();
     if (typeof renderModules === 'function') renderModules();
 }
@@ -165,15 +162,13 @@ function releasePin(pinNum) {
             activeModules.splice(modIndex, 1);
             activeBuses = { I2C: {}, SPI: {}, I2S_IN: {}, I2S_OUT: {}, UART: {} };
             
-            // 重新初始化状态
-            for (let i = 0; i <= 48; i++) {
+            for (let i = 0; i <= boardConfig.max_pin; i++) {
                 if (boardConfig.fixedPins.includes(i)) pinsState[i] = { state: 'fixed', label: 'Fixed' };
                 else if (!boardConfig.availableGpios.includes(i)) pinsState[i] = { state: 'fixed', label: 'N/A' };
                 else if (boardConfig.strappingPins[i]) pinsState[i] = { state: 'strapping', label: 'Strap' };
                 else pinsState[i] = { state: 'free', label: 'Free' };
             }
             
-            // 重建剩余模组的引脚占用状态
             activeModules.forEach(mod => {
                 for (const [signal, pinStr] of Object.entries(mod.connections)) {
                     if (pinStr === "dropped") continue;
@@ -223,9 +218,7 @@ function checkHighSpeedWarning() {
         for (const [signal, pinStr] of Object.entries(mod.connections)) {
             if (pinStr === "dropped") continue;
             const req = modData.requirements.find(r => r.signal === signal);
-            if (req && req.high_speed) {
-                hasHighSpeed = true;
-            }
+            if (req && req.high_speed) { hasHighSpeed = true; }
         }
     });
     return hasHighSpeed;

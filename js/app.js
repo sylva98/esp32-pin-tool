@@ -88,8 +88,10 @@ function renderPins() {
         report = runHardwareDiagnostics(allConnections, boardConfig.boardName); 
     }
     for (let i = 0; i <= boardConfig.max_pin; i++) {
-        if (boardConfig.max_pin > 40 && i > 21 && i < 35) continue; 
+        // 已经移除了 S3 的跳过逻辑，让所有引脚显示出来与实物对应
         const pin = pinsState[i];
+        if (!pin) continue; 
+        
         const div = document.createElement('div');
         let className = `pin ${pin.state}`;
         const errorObj = report.errors.find(e => e.pin === i);
