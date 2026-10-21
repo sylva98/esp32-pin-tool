@@ -187,16 +187,17 @@ function renderModules() {
         wiringList.appendChild(hwWarning);
     }
     
-    // 🔥 新增：界面端的系统级供电拓扑引导
+    // 🔥 全局系统级供电拓扑引导（大白话版本）
     if (isOverload) {
         const sysPowerGuide = document.createElement('div');
         sysPowerGuide.style.cssText = "font-size: 13px; color: #333; background-color: #fff3f3; border: 2px solid #dc3545; padding: 12px; border-radius: 6px; margin-bottom: 15px; line-height: 1.6;";
         sysPowerGuide.innerHTML = `
             <strong style="color: #dc3545; font-size: 14px;">⚠️ 系统总功耗已超载</strong><br>
-            为避免满桌飞线，建议采用 <strong>5V外部电源 + 3.3V降压模块</strong> 集中供电：<br>
-            1. 所有 <strong>5V模组</strong> 的 VCC 统一接外部 5V。<br>
-            2. 所有 <strong>3.3V模组</strong> 的 VCC 统一接降压模块的 3.3V。<br>
-            3. <strong style="color: #dc3545;">最重要：外部电源的 GND 必须与主控 GND 连在一起（共地）。</strong>
+            为避免满桌飞线，建议采用如下供电方案（只需一个电源）：<br>
+            1. 请使用一个 <strong>5V/2A 以上的电源</strong>（如大功率充电宝）插在主控 USB 口上。<br>
+            2. 将 <strong>大功耗模组（如功放）</strong> 的 VCC 接至主控板上的 <strong>5V 或 VIN 引脚</strong>（直通充电宝）。<br>
+            3. 将 <strong>屏幕、传感器</strong> 的 VCC 接至主控板上的 <strong>3.3V 引脚</strong>。<br>
+            4. 将它们的 GND 统一接在主控板 GND 上（主板上天然共地）。
         `;
         wiringList.appendChild(sysPowerGuide);
     }
