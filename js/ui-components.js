@@ -6,16 +6,10 @@
 function initCombobox() {
     const tabsContainer = document.getElementById('combobox-tabs');
     const categories = new Set();
-    
-    // 提取所有分类
-    Object.values(moduleLibrary).forEach(mod => { 
-        if (mod.category) categories.add(mod.category); 
-    });
+    Object.values(moduleLibrary).forEach(mod => { if (mod.category) categories.add(mod.category); });
     
     let tabHtml = `<div class="custom-tab active" data-cat="ALL" onclick="switchCategory('ALL')">全部</div>`;
-    categories.forEach(cat => { 
-        tabHtml += `<div class="custom-tab" data-cat="${cat}" onclick="switchCategory('${cat}')">${cat}</div>`; 
-    });
+    categories.forEach(cat => { tabHtml += `<div class="custom-tab" data-cat="${cat}" onclick="switchCategory('${cat}')">${cat}</div>`; });
     tabsContainer.innerHTML = tabHtml;
 
     renderComboboxOptions();
@@ -49,15 +43,7 @@ function renderComboboxOptions() {
     
     let count = 0;
     for (const [key, data] of Object.entries(moduleLibrary)) {
-        // 最暴力的全匹配过滤逻辑
-        let matchCat = false;
-        if (currentCategory === 'ALL') {
-            matchCat = true;
-        } else {
-            // 去掉可能有隐藏空格的干扰，精准比较
-            matchCat = (data.category.trim() === currentCategory.trim());
-        }
-        
+        const matchCat = (currentCategory === 'ALL' || data.category === currentCategory);
         const matchSearch = (data.name.toLowerCase().includes(currentSearch) || key.toLowerCase().includes(currentSearch));
         
         if (matchCat && matchSearch) {
@@ -94,14 +80,15 @@ function openEditPanel(index) {
     document.getElementById('edit-current').value = currentVal;
     document.getElementById('edit-current').placeholder = `默认: ${modData.peak_current_ma || 0} mA`;
 
-    // 灵魂拷问警告
+    // 风险提示警告
     const warningContainerId = 'edit-physics-warning';
     let warningContainer = document.getElementById(warningContainerId);
     
     if (!warningContainer) {
         warningContainer = document.createElement('div');
         warningContainer.id = warningContainerId;
-        warningContainer.style.cssText = "background: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 10px; border-radius: 4px; font-size: 12px; margin-bottom: 15px; line-height: 1.5;";
+        // 样式优化：稍浅的背景，更清晰的排版
+        warningContainer.style.cssText = "background: #fff8e1; border-left: 4px solid #ffc107; color: #8a6d3b; padding: 12px; border-radius: 4px; font-size: 12px; margin-bottom: 15px; line-height: 1.6;";
         
         const currentInput = document.getElementById('edit-current');
         currentInput.parentNode.insertBefore(warningContainer, currentInput.nextSibling);
@@ -109,9 +96,11 @@ function openEditPanel(index) {
     
     if (modData.peak_current_ma > 100) {
         warningContainer.style.display = 'block';
+        // 文案优化：去除“防呆”等黑话
         warningContainer.innerHTML = `
-            ⚠️ <strong>物理防呆提示：</strong><br>
-            降低此数值<strong>不能改变模组本身的物理耗电</strong>。若您将数值改小以通过预算检查，您<strong>必须</strong>在代码或硬件上采取限制措施（如限制音量/亮度），否则设备仍会因供电不足而死机。强烈建议使用外部独立电源。
+            <strong>⚠️ 自定义功耗风险提示：</strong><br>
+            修改此数值仅用于调整系统的规划预算。<strong>降低数值并不会减少模组实际物理耗电</strong>。<br>
+            如果您为了通过预算检查而强行改小数值，请务必确保在代码或硬件上采取了降功耗措施（如限制音量、调暗屏幕背光），否则实际运行时设备仍可能因供电不足而重启。建议优先考虑使用外部独立电源。
         `;
     } else {
         warningContainer.style.display = 'none';

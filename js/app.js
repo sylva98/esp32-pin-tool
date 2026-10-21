@@ -234,17 +234,15 @@ function renderModules() {
                 const item = document.createElement('div');
                 item.className = 'connection-item';
                 
-                // 🔥 核心优化：动态读取 "/" 前后的内容
                 let displayWarning = p.warning;
-                let isDangerousPower = isOverload; // 默认超载才算危险
+                let isDangerousPower = isOverload; 
 
                 if (p.warning.includes('/')) {
                     const parts = p.warning.split('/');
                     if (isOverload) {
-                        displayWarning = parts[1].trim(); // 超载取后半段
+                        displayWarning = parts[1].trim(); 
                     } else {
-                        displayWarning = parts[0].trim(); // 未超载取前半段
-                        // 如果前半段本身就写了“必须外部”，依然置红
+                        displayWarning = parts[0].trim(); 
                         if (displayWarning.includes('必须外部') || displayWarning.includes('严禁接主板')) {
                             isDangerousPower = true;
                         }
@@ -282,6 +280,7 @@ function addModule() {
         return alert(`❌ 资源不足：${boardConfig.boardName} 的引脚数量较少，无法支撑 DVP 摄像头。`);
     }
     
+    // 功耗拦截
     let currentTotal = 0;
     activeModules.forEach(mod => {
         const mData = moduleLibrary[mod.id];
@@ -312,7 +311,23 @@ function addModule() {
     const result = tryAllocate(modData, pinsStateCopy);
     
     if (result.missingRequired.length > 0) {
-        return alert(`引脚严重不足或存在电气冲突！\n无法满足必选信号 (${result.missingRequired.join(', ')})。\n系统已为您拦截不安全的引脚。`);
+        // 🔥 优化：计算清晰的缺口账单
+        let totalNeed = 0;
+        modData.requirements.forEach(r => { if (!r.optional) totalNeed += r.count; });
+        
+        let availableCount = 0;
+        for (let i = 0; i <= boardConfig.max_pin; i++) {
+            if (pinsState[i] && pinsState[i].state === 'free') availableCount++;
+        }
+
+        let errMsg = `⚠️ 资源分配失败\n\n`;
+        errMsg += `【模组需求】总计 ${totalNeed} 根引脚\n`;
+        errMsg += `【当前空闲】仅剩 ${availableCount} 根引脚\n\n`;
+        errMsg += `系统无法满足必选信号：${result.missingRequired.join(', ')}。\n`;
+        errMsg += `强行分配会导致严重的引脚冲突（甚至烧板）。\n\n`;
+        errMsg += `💡 解决方案：\n1. 移除部分已接入的模组以释放引脚。\n2. 或在微调面板中裁剪可选/批量引脚数量。`;
+        
+        return alert(errMsg);
     }
     
     if (result.missingOptional.length === 0) { 
