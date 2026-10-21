@@ -21,30 +21,19 @@ document.addEventListener('DOMContentLoaded', () => {
         moduleLibrary = globalModuleData;
         const boardSelect = document.getElementById('board-select');
         
-        // 如果有多个芯片，填充下拉框
-        if (typeof globalBoards !== 'undefined') {
-            boardSelect.innerHTML = '';
-            boardSelect.style.display = 'block'; // 显示下拉框
-            boardSelect.disabled = false; // 解除禁用
-            for (const [key, data] of Object.entries(globalBoards)) {
-                const option = document.createElement('option');
-                option.value = key;
-                option.textContent = data.boardName;
-                boardSelect.appendChild(option);
-            }
-            const firstBoardKey = Object.keys(globalBoards)[0];
-            loadBoard(firstBoardKey);
-        } else {
-            // 兜底：如果只有单数的 globalBoardData
-            boardConfig = globalBoardData;
-            document.getElementById('board-title').innerText = "当前配置: " + boardConfig.boardName;
-            initPins();
-            if (typeof initCombobox === 'function') { initCombobox(); }
-            if (typeof initDiagnosticsEngine === 'function') { initDiagnosticsEngine(); }
-            renderPins();
-            renderModules();
-            updatePowerBudget();
+        boardSelect.innerHTML = '';
+        boardSelect.style.display = 'block';
+        boardSelect.disabled = false;
+        
+        for (const [key, data] of Object.entries(globalBoards)) {
+            const option = document.createElement('option');
+            option.value = key;
+            option.textContent = data.boardName;
+            boardSelect.appendChild(option);
         }
+        const firstBoardKey = Object.keys(globalBoards)[0];
+        loadBoard(firstBoardKey);
+        
     } catch (error) {
         console.error(error);
         document.getElementById('board-title').innerText = "❌ 初始化失败";
@@ -65,7 +54,6 @@ function loadBoard(boardKey) {
     boardConfig = globalBoards[boardKey];
     document.getElementById('board-title').innerText = "当前配置: " + boardConfig.boardName;
     
-    // 重置状态
     activeModules = []; 
     activeBuses = { I2C: {}, SPI: {}, I2S_IN: {}, I2S_OUT: {}, UART: {} };
     
@@ -306,7 +294,6 @@ function confirmNegotiation() {
 
 function resetAll() {
     if(confirm('确定要清空所有配置吗？')) { 
-        // 重新加载当前选择的板子
         const currentBoard = document.getElementById('board-select').value || Object.keys(globalBoards)[0];
         loadBoard(currentBoard);
     }
