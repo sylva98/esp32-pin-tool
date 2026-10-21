@@ -171,7 +171,6 @@ function renderModules() {
     
     list.innerHTML = ''; wiringList.innerHTML = '';
     
-    // 计算总功耗
     let totalCurrent = 0;
     activeModules.forEach(mod => {
         const mData = moduleLibrary[mod.id];
@@ -187,24 +186,10 @@ function renderModules() {
         wiringList.appendChild(hwWarning);
     }
     
-    // 🔥 全局系统级供电拓扑引导（大白话版本）
-    if (isOverload) {
-        const sysPowerGuide = document.createElement('div');
-        sysPowerGuide.style.cssText = "font-size: 13px; color: #333; background-color: #fff3f3; border: 2px solid #dc3545; padding: 12px; border-radius: 6px; margin-bottom: 15px; line-height: 1.6;";
-        sysPowerGuide.innerHTML = `
-            <strong style="color: #dc3545; font-size: 14px;">⚠️ 系统总功耗已超载</strong><br>
-            为避免满桌飞线，建议采用如下供电方案（只需一个电源）：<br>
-            1. 请使用一个 <strong>5V/2A 以上的电源</strong>（如大功率充电宝）插在主控 USB 口上。<br>
-            2. 将 <strong>大功耗模组（如功放）</strong> 的 VCC 接至主控板上的 <strong>5V 或 VIN 引脚</strong>（直通充电宝）。<br>
-            3. 将 <strong>屏幕、传感器</strong> 的 VCC 接至主控板上的 <strong>3.3V 引脚</strong>。<br>
-            4. 将它们的 GND 统一接在主控板 GND 上（主板上天然共地）。
-        `;
-        wiringList.appendChild(sysPowerGuide);
-    }
-    
+    // 🔥 已经彻底删除了那个占地方的红色供电指导框
+
     activeModules.forEach((mod, index) => {
         const modData = moduleLibrary[mod.id];
-        const modCurrent = mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0);
         
         const modDiv = document.createElement('div');
         modDiv.className = 'module-tag';
@@ -224,7 +209,6 @@ function renderModules() {
         title.style.fontSize = '1rem'; title.style.marginTop = '15px';
         wiringList.appendChild(title);
         
-        // 渲染信号线
         for (const [signal, pinNum] of Object.entries(mod.connections)) {
             const item = document.createElement('div');
             item.className = 'connection-item';
@@ -238,25 +222,25 @@ function renderModules() {
             wiringList.appendChild(item);
         }
 
-        // 渲染物理电源线
         if (modData.power_pins && modData.power_pins.length > 0) {
             modData.power_pins.forEach(p => {
                 const item = document.createElement('div');
                 item.className = 'connection-item';
                 
-                let displayWarning = p.warning;
-                let isDangerousPower = isOverload; 
+                let displayWarning = "";
+                let isDangerousPower = false;
 
-                if (p.warning.includes('/')) {
-                    const parts = p.warning.split('/');
-                    if (isOverload) {
-                        displayWarning = parts[1].trim(); 
+                if (isOverload) {
+                    if (p.connect_to === '5V') {
+                        displayWarning = "接外部 5V 供电";
+                        isDangerousPower = true;
+                    } else if (p.connect_to === '3.3V') {
+                        displayWarning = "接降压模块输出";
                     } else {
-                        displayWarning = parts[0].trim(); 
-                        if (displayWarning.includes('必须外部') || displayWarning.includes('严禁接主板')) {
-                            isDangerousPower = true;
-                        }
+                        displayWarning = "统一共地";
                     }
+                } else {
+                    displayWarning = p.connect_to === 'GND' ? "接主板 GND" : "接主板 " + p.connect_to;
                 }
                 
                 if (isDangerousPower) {
@@ -290,7 +274,6 @@ function addModule() {
         return alert(`❌ 资源不足：${boardConfig.boardName} 的引脚数量较少，无法支撑 DVP 摄像头。`);
     }
     
-    // 功耗拦截
     let currentTotal = 0;
     activeModules.forEach(mod => {
         const mData = moduleLibrary[mod.id];
@@ -321,7 +304,6 @@ function addModule() {
     const result = tryAllocate(modData, pinsStateCopy);
     
     if (result.missingRequired.length > 0) {
-        // 计算清晰的缺口账单
         let totalNeed = 0;
         modData.requirements.forEach(r => { if (!r.optional) totalNeed += r.count; });
         

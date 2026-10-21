@@ -40,12 +40,6 @@ function generateCodePreview() {
                     } else { code += `#define ${prefix}_${sig}  ${pinStr}\n`; }
                 }
             });
-            
-            // 代码层降功耗注释
-            const modCurrent = mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0);
-            if (modCurrent > 100) {
-                 code += `\n// ⚠️ 【供电警告】该模组峰值功耗较高（${modCurrent}mA），请确保使用外部电源供电并与主控共地。\n// 若设备发生重启（Brownout），请尝试在代码中降低输出（如降低音量/亮度）。\n`;
-            }
             code += `\n`;
         }
     });
@@ -57,7 +51,6 @@ function generateCodePreview() {
 function printWiringSheet() {
     if (activeModules.length === 0) { return alert('当前没有接入任何模组，无需打印。'); }
     
-    // 计算总功耗，用于判断是否超标
     let totalCurrent = 0;
     activeModules.forEach(mod => {
         const mData = moduleLibrary[mod.id];
@@ -78,7 +71,6 @@ function printWiringSheet() {
         </div>
     `;
 
-    // 物理走线警告
     if (typeof checkHighSpeedWarning === 'function' && checkHighSpeedWarning()) {
         html += `
             <div class="print-warning-box">
@@ -88,7 +80,6 @@ function printWiringSheet() {
         `;
     }
 
-    // 🔥 全局供电警告（大白话版本，和网页端完全一致）
     if (isOverload) {
         html += `
             <div style="border: 2px solid #dc3545; background: #fff3f3; padding: 12px; margin-bottom: 20px; font-size: 13px; color: #333;">
@@ -113,7 +104,6 @@ function printWiringSheet() {
                     <tbody>
         `;
         
-        // 1. 渲染信号线
         for (const [signal, pinNum] of Object.entries(mod.connections)) {
             if (pinNum === "dropped") {
                 html += `<tr><td style="text-align: center;">-</td><td><strong>${signal}</strong></td><td style="color: #dc3545; text-decoration: line-through;">已放弃连接</td></tr>`;
@@ -124,28 +114,26 @@ function printWiringSheet() {
             }
         }
 
-        // 2. 渲染电源线 (直接塞进表格里，极度节省空间)
         if (modData.power_pins && modData.power_pins.length > 0) {
             modData.power_pins.forEach(p => {
-                let displayWarning = p.warning;
-                let isDanger = isOverload; 
+                // 提取最简短的指导语，抛弃长句
+                let displayWarning = "";
+                let isDanger = false;
 
-                // 动态解析警告文案
-                if (p.warning.includes('/')) {
-                    const parts = p.warning.split('/');
-                    if (isOverload) {
-                        displayWarning = parts[1].trim(); 
+                if (isOverload) {
+                    if (p.connect_to === '5V') {
+                        displayWarning = "接外部 5V 供电";
+                        isDanger = true;
+                    } else if (p.connect_to === '3.3V') {
+                        displayWarning = "接降压模块输出";
+                        isDanger = false; // 降压模块输出一般不算致命危险，不标红
                     } else {
-                        displayWarning = parts[0].trim(); 
+                        displayWarning = "统一共地";
                     }
-                }
-                
-                // 检查文字中是否明确要求外部
-                if (displayWarning.includes('外部') || displayWarning.includes('严禁')) {
-                    isDanger = true;
+                } else {
+                    displayWarning = p.connect_to === 'GND' ? "接主板 GND" : "接主板 " + p.connect_to;
                 }
 
-                // 如果超载或者本身危险，只把这行的数据标红，不弄大红框
                 let connectHtml = isDanger 
                     ? `<strong style="color:#dc3545;">${p.connect_to}</strong> <span style="color:#dc3545; font-size:12px;">(${displayWarning})</span>`
                     : `<strong style="color:#333;">${p.connect_to}</strong> <span style="color:#888; font-size:12px;">(${displayWarning})</span>`;
