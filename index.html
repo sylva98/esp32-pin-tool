@@ -3,10 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 引脚智能配置系统</title>
+    <title>ESP32-S3 引脚智能配置系统</title>
     <link rel="stylesheet" href="css/style.css">
     <style>
-        /* 高级组合下拉框样式 */
         .custom-select-wrapper { position: relative; width: 100%; margin-bottom: 10px; }
         .custom-select-display {
             width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 4px;
@@ -34,40 +33,32 @@
         .custom-option:hover { background: #e9ecef; }
         .custom-option:last-child { border-bottom: none; }
 
-        /* 🌟 打印专用样式 (点击打印时生效) 🌟 */
         @media print {
             body { background: #fff; padding: 0; margin: 0; display: block; height: auto; }
             .sidebar, .main-content, #global-tooltip { display: none !important; }
             #print-section { display: block !important; width: 100%; padding: 20px; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #000; }
-            
             .print-header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
             .print-title { font-size: 24px; font-weight: bold; margin: 0 0 10px 0; }
             .print-meta { font-size: 14px; color: #555; }
-            
             .print-warning-box { border: 2px solid #dc3545; background: #fff3f3; padding: 10px; margin-bottom: 20px; font-size: 14px; page-break-inside: avoid; }
             .print-warning-title { color: #dc3545; font-weight: bold; margin-bottom: 5px; }
-            
             .print-module-block { margin-bottom: 25px; page-break-inside: avoid; }
             .print-module-name { font-size: 18px; font-weight: bold; background: #eee; padding: 8px; margin-bottom: 10px; border-left: 5px solid #333; }
-            
             .print-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
             .print-table th, .print-table td { border: 1px solid #999; padding: 10px; text-align: left; font-size: 14px; }
             .print-table th { background: #f0f0f0; font-weight: bold; }
             .print-checkbox { width: 20px; height: 20px; border: 2px solid #333; display: inline-block; vertical-align: middle; }
-            
             .print-footer { text-align: center; font-size: 12px; color: #888; margin-top: 40px; border-top: 1px solid #ccc; padding-top: 10px; }
         }
     </style>
 </head>
 <body>
     <div class="sidebar">
-        <!-- 主控选择 -->
-        <label style="font-size: 12px; font-weight: bold; color: #555; display: block; margin-bottom: 5px;">当前主控型号:</label>
-        <select id="board-select" onchange="switchBoard()" style="width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; background-color: #fff;"></select>
+        <!-- 隐藏主控下拉框，因为只有 S3 -->
+        <select id="board-select" style="display: none;"></select>
 
         <h2 id="board-title" style="font-size: 14px; color: #888; margin-top: 0; padding-bottom: 10px;">加载中...</h2>
         
-        <!-- 组合下拉框 -->
         <div class="custom-select-wrapper" id="module-combobox">
             <div class="custom-select-display" id="combobox-display" onclick="toggleCombobox()">
                 <span id="combobox-text">-- 选择外设模组 --</span>
@@ -75,7 +66,7 @@
             </div>
             <div class="custom-select-panel" id="combobox-panel">
                 <div class="custom-select-search">
-                    <input type="text" id="combobox-search" placeholder="🔍 搜索型号 (如 TFT, 4G)..." oninput="filterComboboxOptions()" onclick="event.stopPropagation()">
+                    <input type="text" id="combobox-search" placeholder="🔍 搜索型号..." oninput="filterComboboxOptions()" onclick="event.stopPropagation()">
                 </div>
                 <div class="custom-select-tabs" id="combobox-tabs"></div>
                 <div class="custom-select-options" id="combobox-options"></div>
@@ -95,12 +86,10 @@
         <h2>导出配置</h2>
         <button class="btn-success" onclick="exportConfig()">导出 JSON 配置</button>
         <button class="btn-success" onclick="exportCHeader()" style="margin-top:10px; background:#17a2b8;">生成 C 语言头文件</button>
-        <!-- 打印按钮 -->
         <button class="btn-primary" onclick="printWiringSheet()" style="margin-top:10px; background:#6f42c1;">🖨️ 打印接线单</button>
     </div>
 
     <div class="main-content">
-        <!-- 功耗预算进度条 -->
         <div class="panel" style="padding: 15px 20px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                 <h2 style="font-size: 1rem; border: none; padding: 0; margin: 0;">主控供电预算</h2>
@@ -133,10 +122,8 @@
         </div>
     </div>
 
-    <!-- 专门用于打印的纯净视图 (平时隐藏) -->
     <div id="print-section" style="display: none;"></div>
 
-    <!-- 协商弹窗 -->
     <div id="negotiation-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 1000; justify-content: center; align-items: center;">
         <div style="background: white; padding: 25px; border-radius: 8px; width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
             <h3 style="margin-top: 0; color: #dc3545;">⚠️ 引脚资源不足</h3>
@@ -152,7 +139,6 @@
         </div>
     </div>
 
-    <!-- 参数微调弹窗 -->
     <div id="edit-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 1001; justify-content: center; align-items: center;">
         <div style="background: white; padding: 25px; border-radius: 8px; width: 350px; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
             <h3 style="margin-top: 0; color: #333;">⚙️ 微调参数</h3>
@@ -175,8 +161,8 @@
         </div>
     </div>
 
-    <!-- 数据与逻辑加载 (严格按顺序) -->
-    <script src="data/boards.js"></script>
+    <!-- 数据加载 (注意这里没有 s) -->
+    <script src="data/board.js"></script>
     <script src="data/modules.js"></script>
     
     <script src="js/diagnostics.js"></script>
