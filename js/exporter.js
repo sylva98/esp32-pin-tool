@@ -77,11 +77,26 @@ function printWiringSheet() {
             </div>
         </div>
     `;
+
+    // 物理走线警告
     if (typeof checkHighSpeedWarning === 'function' && checkHighSpeedWarning()) {
         html += `
             <div class="print-warning-box">
                 <div class="print-warning-title">⚠️ 物理走线警告</div>
                 <div>本项目包含 SPI/I2S 等高频信号引脚。为确保通信稳定，请确保信号线（特别是时钟线与数据线）长度不超过 10cm，且尽量不要平行缠绕，尽量包地处理。</div>
+            </div>
+        `;
+    }
+
+    // 🔥 全局供电警告（只在超载时打印在单子最顶部）
+    if (isOverload) {
+        html += `
+            <div style="border: 2px solid #dc3545; background: #fff3f3; padding: 12px; margin-bottom: 20px; font-size: 13px; color: #333;">
+                <strong style="color: #dc3545; font-size: 15px;">⚠️ 系统总功耗已超载</strong><br>
+                为避免设备无限重启，请采用外部供电。建议不要为每个模组单独配电源，而是使用一个 <strong>5V外部电源 + 降压模块</strong> 统一供电：<br>
+                1. 所有 <strong>5V模组</strong> 的 VCC 统一接外部 5V。<br>
+                2. 所有 <strong>3.3V模组</strong> 的 VCC 统一接降压模块的 3.3V。<br>
+                3. <strong style="color:#dc3545;">非常重要：外部电源的 GND 必须与主控的 GND 连在一起（共地）</strong>，否则信号全乱。
             </div>
         `;
     }
@@ -93,9 +108,11 @@ function printWiringSheet() {
             <div class="print-module-block">
                 <div class="print-module-name">${index + 1}. ${modData.name}</div>
                 <table class="print-table">
-                    <thead><tr><th style="width: 15%; text-align: center;">完成</th><th style="width: 30%;">信号名称</th><th style="width: 55%;">目标引脚</th></tr></thead>
+                    <thead><tr><th style="width: 15%; text-align: center;">完成</th><th style="width: 30%;">信号/电源名称</th><th style="width: 55%;">目标引脚</th></tr></thead>
                     <tbody>
         `;
+        
+        // 1. 渲染信号线
         for (const [signal, pinNum] of Object.entries(mod.connections)) {
             if (pinNum === "dropped") {
                 html += `<tr><td style="text-align: center;">-</td><td><strong>${signal}</strong></td><td style="color: #dc3545; text-decoration: line-through;">已放弃连接</td></tr>`;
@@ -105,30 +122,44 @@ function printWiringSheet() {
                 html += `<tr><td style="text-align: center;"><div class="print-checkbox"></div></td><td><strong>${signal}</strong></td><td>GPIO ${pinNum} ${note}</td></tr>`;
             }
         }
-        html += `</tbody></table>`;
 
-        // 🔥 修复：打印单上的外部供电强提醒。直接复用 power_pins 的配置，不再一刀切写死。
+        // 2. 渲染电源线 (直接塞进表格里，极度节省空间)
         if (modData.power_pins && modData.power_pins.length > 0) {
-            const isDanger = isOverload || modData.power_pins.some(p => p.warning.includes('外部') || p.warning.includes('严禁'));
-            if (isDanger) {
-                let powerHtml = `<div style="border: 2px solid #dc3545; background: #fff3f3; padding: 10px; margin-bottom: 25px; font-size: 14px; color: #333;">
-                    <strong style="color: #dc3545;">🔴 【电源接线警告】</strong><br>`;
-                
-                modData.power_pins.forEach(p => {
-                    let displayWarning = p.warning;
-                    if (p.warning.includes('/') && isOverload) {
-                        displayWarning = p.warning.split('/')[1].trim();
-                    } else if (p.warning.includes('/')) {
-                        displayWarning = p.warning.split('/')[0].trim();
+            modData.power_pins.forEach(p => {
+                let displayWarning = p.warning;
+                let isDanger = isOverload; 
+
+                // 动态解析警告文案
+                if (p.warning.includes('/')) {
+                    const parts = p.warning.split('/');
+                    if (isOverload) {
+                        displayWarning = parts[1].trim(); 
+                    } else {
+                        displayWarning = parts[0].trim(); 
                     }
-                    powerHtml += `- 请将模组的 <strong>${p.pin}</strong> 接至 <strong>${p.connect_to}</strong>（${displayWarning}）。<br>`;
-                });
-                powerHtml += `</div>`;
-                html += powerHtml;
-            }
+                }
+                
+                // 检查文字中是否明确要求外部
+                if (displayWarning.includes('外部') || displayWarning.includes('严禁')) {
+                    isDanger = true;
+                }
+
+                // 如果超载或者本身危险，只把这行的数据标红，不弄大红框
+                let connectHtml = isDanger 
+                    ? `<strong style="color:#dc3545;">${p.connect_to}</strong> <span style="color:#dc3545; font-size:12px;">(${displayWarning})</span>`
+                    : `<strong style="color:#333;">${p.connect_to}</strong> <span style="color:#888; font-size:12px;">(${displayWarning})</span>`;
+
+                html += `
+                    <tr>
+                        <td style="text-align: center;"><div class="print-checkbox"></div></td>
+                        <td><strong>${p.pin}</strong></td>
+                        <td>${connectHtml}</td>
+                    </tr>
+                `;
+            });
         }
-        
-        html += `</div>`;
+
+        html += `</tbody></table></div>`;
     });
     
     html += `

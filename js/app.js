@@ -180,16 +180,27 @@ function renderModules() {
     const maxCurrent = boardConfig.max_current_ma || 500;
     const isOverload = totalCurrent > maxCurrent;
 
-    // 只保留物理走线警告（如果有高频信号）
     if (typeof checkHighSpeedWarning === 'function' && checkHighSpeedWarning()) {
         const hwWarning = document.createElement('div');
-        hwWarning.style.cssText = "font-size: 13px; color: #856404; background-color: #fff3cd; border: 1px solid #ffeeba; padding: 12px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; line-height: 1.5;";
+        hwWarning.style.cssText = "font-size: 13px; color: #856404; background-color: #fff3cd; border: 1px solid #ffeeba; padding: 12px; border-radius: 6px; margin-bottom: 10px; display: flex; align-items: center; line-height: 1.5;";
         hwWarning.innerHTML = `<span style="font-size: 16px; margin-right: 8px;">⚠️</span> <div><strong>物理走线警告：</strong>您的项目使用了 SPI/I2S 等高频信号引脚。请确保排线长度不超过 10cm，且信号线尽量分开或包地。</div>`;
         wiringList.appendChild(hwWarning);
     }
     
-    // ❌ 已删除：原“智能避雷生效”的绿色提示条
-
+    // 🔥 新增：界面端的系统级供电拓扑引导
+    if (isOverload) {
+        const sysPowerGuide = document.createElement('div');
+        sysPowerGuide.style.cssText = "font-size: 13px; color: #333; background-color: #fff3f3; border: 2px solid #dc3545; padding: 12px; border-radius: 6px; margin-bottom: 15px; line-height: 1.6;";
+        sysPowerGuide.innerHTML = `
+            <strong style="color: #dc3545; font-size: 14px;">⚠️ 系统总功耗已超载</strong><br>
+            为避免满桌飞线，建议采用 <strong>5V外部电源 + 3.3V降压模块</strong> 集中供电：<br>
+            1. 所有 <strong>5V模组</strong> 的 VCC 统一接外部 5V。<br>
+            2. 所有 <strong>3.3V模组</strong> 的 VCC 统一接降压模块的 3.3V。<br>
+            3. <strong style="color: #dc3545;">最重要：外部电源的 GND 必须与主控 GND 连在一起（共地）。</strong>
+        `;
+        wiringList.appendChild(sysPowerGuide);
+    }
+    
     activeModules.forEach((mod, index) => {
         const modData = moduleLibrary[mod.id];
         const modCurrent = mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0);
