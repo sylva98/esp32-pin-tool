@@ -2,10 +2,16 @@ window.globalBoardData = {
     "boardName": "ESP32-S3-WROOM-1 N16R8",
     "safe_voltage": 3.3,
     "power_rails": { "5V": false, "3.3V": true },
-    "max_current_ma": 450, // 新增：主控 3.3V LDO 的安全供电上限
+    "max_current_ma": 450,
     "fixedPins": [1, 2, 3, 13, 14, 19, 20, 31, 32, 33, 34, 35, 36, 37, 41],
     "strappingPins": [0, 3, 45, 46],
     "special_domains": { "47": "1.8V", "48": "1.8V" },
     "availableGpios": [4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18, 21, 38, 39, 40, 42, 43, 44, 45, 46, 47, 48],
-    "defaultInterfaces": { "I2C": { "SDA": 8, "SCL": 9 }, "SPI": { "MOSI": 11, "MISO": 13, "SCK": 12, "CS": 10 } }
+    "defaultInterfaces": { 
+        "I2C": { "SDA": 8, "SCL": 9 }, 
+        "SPI": { "MOSI": 11, "MISO": 13, "SCK": 12, "CS": 10 },
+        "I2S_IN": { "BCLK": 15, "LRC": 16, "SD": 17 },
+        "I2S_OUT": { "BCLK": 15, "LRC": 16, "DIN": 17 },
+        "UART": { "TX": 43, "RX": 44 }
+    }
 };
