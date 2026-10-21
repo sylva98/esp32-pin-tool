@@ -180,18 +180,16 @@ function renderModules() {
     const maxCurrent = boardConfig.max_current_ma || 500;
     const isOverload = totalCurrent > maxCurrent;
 
+    // 只保留物理走线警告（如果有高频信号）
     if (typeof checkHighSpeedWarning === 'function' && checkHighSpeedWarning()) {
         const hwWarning = document.createElement('div');
-        hwWarning.style.cssText = "font-size: 13px; color: #856404; background-color: #fff3cd; border: 1px solid #ffeeba; padding: 12px; border-radius: 6px; margin-bottom: 10px; display: flex; align-items: center; line-height: 1.5;";
+        hwWarning.style.cssText = "font-size: 13px; color: #856404; background-color: #fff3cd; border: 1px solid #ffeeba; padding: 12px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; line-height: 1.5;";
         hwWarning.innerHTML = `<span style="font-size: 16px; margin-right: 8px;">⚠️</span> <div><strong>物理走线警告：</strong>您的项目使用了 SPI/I2S 等高频信号引脚。请确保排线长度不超过 10cm，且信号线尽量分开或包地。</div>`;
         wiringList.appendChild(hwWarning);
     }
     
-    const smartTip = document.createElement('div');
-    smartTip.style.cssText = "font-size: 13px; color: #155724; background-color: #d4edda; border: 1px solid #c3e6cb; padding: 12px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; line-height: 1.5;";
-    smartTip.innerHTML = `<span style="font-size: 16px; margin-right: 8px;">💡</span> <div><strong>智能避雷生效：</strong>已在后台自动过滤“5V烧板风险”、“启动引脚电平冲突”、“高频串扰”及“ADC2-WiFi冲突”。</div>`;
-    wiringList.appendChild(smartTip);
-    
+    // ❌ 已删除：原“智能避雷生效”的绿色提示条
+
     activeModules.forEach((mod, index) => {
         const modData = moduleLibrary[mod.id];
         const modCurrent = mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0);
@@ -311,7 +309,7 @@ function addModule() {
     const result = tryAllocate(modData, pinsStateCopy);
     
     if (result.missingRequired.length > 0) {
-        // 🔥 优化：计算清晰的缺口账单
+        // 计算清晰的缺口账单
         let totalNeed = 0;
         modData.requirements.forEach(r => { if (!r.optional) totalNeed += r.count; });
         
