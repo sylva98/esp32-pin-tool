@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32-S3 引脚智能配置系统</title>
+    <title>ESP32 引脚智能配置系统</title>
     <link rel="stylesheet" href="css/style.css">
     <style>
         .custom-select-wrapper { position: relative; width: 100%; margin-bottom: 10px; }
@@ -54,8 +54,9 @@
 </head>
 <body>
     <div class="sidebar">
-        <!-- 隐藏主控下拉框，因为只有 S3 -->
-        <select id="board-select" style="display: none;"></select>
+        <label style="font-size: 12px; font-weight: bold; color: #555; display: block; margin-bottom: 5px;">当前主控型号:</label>
+        <!-- 下拉框保留可见，用来选择不同型号 -->
+        <select id="board-select" onchange="switchBoard()" style="width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; background-color: #fff;"></select>
 
         <h2 id="board-title" style="font-size: 14px; color: #888; margin-top: 0; padding-bottom: 10px;">加载中...</h2>
         
@@ -124,44 +125,7 @@
 
     <div id="print-section" style="display: none;"></div>
 
-    <div id="negotiation-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 1000; justify-content: center; align-items: center;">
-        <div style="background: white; padding: 25px; border-radius: 8px; width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
-            <h3 style="margin-top: 0; color: #dc3545;">⚠️ 引脚资源不足</h3>
-            <p style="font-size: 14px; color: #555;" id="negotiation-msg">当前剩余空闲引脚不足以分配完整的模组。</p>
-            <div style="background: #f8f9fa; border: 1px solid #ddd; padding: 10px; border-radius: 4px; margin-bottom: 15px;">
-                <p style="font-size: 13px; margin: 0 0 10px 0; font-weight: bold;">请勾选你愿意【放弃】的可选引脚：</p>
-                <div id="negotiation-options"></div>
-            </div>
-            <div style="display: flex; justify-content: flex-end; gap: 10px;">
-                <button onclick="cancelNegotiation()" style="background: #6c757d; width: auto; padding: 8px 15px;">取消</button>
-                <button onclick="confirmNegotiation()" style="background: #dc3545; width: auto; padding: 8px 15px;">确认妥协</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="edit-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 1001; justify-content: center; align-items: center;">
-        <div style="background: white; padding: 25px; border-radius: 8px; width: 350px; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
-            <h3 style="margin-top: 0; color: #333;">⚙️ 微调参数</h3>
-            <div style="margin-bottom: 15px;">
-                <label style="font-size: 13px; font-weight: bold; display: block; margin-bottom: 5px;">预估峰值电流 (mA):</label>
-                <input type="number" id="edit-current" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
-            </div>
-            <div id="pin-count-container" style="margin-bottom: 15px; display: none;">
-                <label id="pin-count-label" style="font-size: 13px; font-weight: bold; display: block; margin-bottom: 5px;">数据线数量裁剪:</label>
-                <select id="edit-pin-count" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;"></select>
-            </div>
-            <div style="margin-bottom: 15px;">
-                <label style="font-size: 13px; font-weight: bold; display: block; margin-bottom: 5px;">单线智能重排:</label>
-                <div id="edit-pin-list" style="max-height: 150px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; padding: 5px;"></div>
-            </div>
-            <div style="display: flex; justify-content: flex-end; gap: 10px;">
-                <button onclick="closeEditPanel()" style="background: #6c757d; width: auto; padding: 8px 15px;">取消</button>
-                <button onclick="saveModuleParams()" style="background: #007bff; width: auto; padding: 8px 15px;">保存</button>
-            </div>
-        </div>
-    </div>
-
-
+    <!-- 引入多芯片数据 -->
     <script src="data/boards.js"></script>
     <script src="data/modules.js"></script>
     
