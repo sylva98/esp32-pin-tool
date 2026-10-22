@@ -77,13 +77,24 @@
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 1002; justify-content: center; align-items: center;}
         .modal-content { background: white; padding: 25px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); max-height: 90vh; display: flex; flex-direction: column;}
 
-        /* ================= 购物车弹窗样式 ================= */
+        /* ================= 购物车弹窗样式 (重写) ================= */
         .cart-layout { display: flex; gap: 20px; height: 60vh; }
         .cart-left { flex: 1; border-right: 1px solid #eee; padding-right: 20px; display: flex; flex-direction: column;}
         .cart-right { flex: 1; display: flex; flex-direction: column; background: #fafafa; border-radius: 8px; padding: 15px;}
         .cart-list { flex: 1; overflow-y: auto; margin-top: 10px; }
-        .cart-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; background: white; border: 1px solid #eee; border-radius: 6px; margin-bottom: 8px; transition: all 0.2s;}
-        .cart-item:hover { border-color: #007bff; box-shadow: 0 2px 5px rgba(0,0,0,0.05);}
+        
+        /* 左侧模组库卡片 */
+        .cart-left-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; background: white; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; transition: 0.2s;}
+        .cart-left-item:hover { border-color: #007bff; background: #f0f7ff; }
+        
+        /* 右侧购物车卡片 */
+        .cart-right-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: white; border: 1px solid #eee; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);}
+        .cart-right-item .item-info { display: flex; align-items: center; gap: 12px; }
+        .cart-right-item .item-actions { display: flex; align-items: center; gap: 15px; }
+        
+        .priority-badge { background: #e9ecef; color: #6c757d; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold;}
+        .btn-icon { background: none; border: none; cursor: pointer; font-size: 18px; transition: 0.2s; }
+        .btn-icon:hover { transform: scale(1.2); }
     </style>
 </head>
 <body>
@@ -100,12 +111,14 @@
 
         <h2 id="board-title" style="display: none;"></h2>
         
-        <!-- 2. 核心：打开购物车按钮 -->
-        <button onclick="openCartModal()" style="width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; transition: background 0.2s; margin-bottom: 20px;">➕ 添加与管理模组</button>
+        <!-- 2. 核心：打开购物车按钮 (加号变白) -->
+        <button onclick="openCartModal()" style="width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; transition: background 0.2s; margin-bottom: 20px; display: flex; justify-content: center; align-items: center; gap: 8px;">
+            <span style="color: white; font-size: 18px; font-weight: bold;">+</span> 添加与管理模组
+        </button>
 
         <div style="height: 1px; background: var(--border); margin: 0 0 20px 0;"></div>
         
-        <!-- 3. 已接入模组列表 -->
+        <!-- 3. 已接入模组列表 (去除了齿轮图标) -->
         <h2 style="font-size: 15px; margin-top: 0; border-bottom: none; padding-bottom: 0; margin-bottom: 10px;">已接入模组</h2>
         <div id="active-modules-list" style="flex:1; overflow-y: auto;">
             <p style="color:#888; font-size:12px; text-align:center; margin-top: 20px;">暂无模组</p>
@@ -155,49 +168,50 @@
         </div>
     </div>
 
-    <!-- 专门用于打印的纯净视图 (平时隐藏) -->
+    <!-- 打印视图 -->
     <div id="print-section" style="display: none;"></div>
 
     <!-- ===================== 弹窗区 ===================== -->
     
-    <!-- 购物车弹窗 -->
+    <!-- 购物车弹窗 (重写UI) -->
     <div id="cart-modal" class="modal-overlay">
-        <div class="modal-content" style="width: 900px; height: 75vh;">
+        <div class="modal-content" style="width: 1000px; height: 75vh; padding: 20px;">
+            <!-- 头部 -->
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 15px;">
                 <h2 style="margin: 0; font-size: 18px;">🛒 配置我的硬件方案</h2>
-                <button onclick="closeCartModal()" style="background: transparent; border: none; font-size: 20px; cursor: pointer; color: #888;">✖</button>
+                <button onclick="clearCart()" style="background: none; border: none; color: #dc3545; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 4px;">🗑️ 清空</button>
             </div>
             
             <div class="cart-layout">
-                <!-- 左侧：模组库 -->
+                <!-- 左侧：带分类的模组库 -->
                 <div class="cart-left">
-                    <input type="text" id="cart-search" placeholder="🔍 搜索模组库..." oninput="renderCartLeftList()" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 10px; box-sizing: border-box; outline: none;">
-                    <div id="cart-left-list" class="cart-list" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-content: start;">
-                        <!-- 动态渲染模组库 -->
+                    <input type="text" id="cart-search" placeholder="🔍 搜索模组..." oninput="renderCartLeftList()" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 10px; box-sizing: border-box; outline: none;">
+                    <div class="custom-select-tabs" id="cart-tabs" style="margin-bottom: 10px; border: none; background: transparent; gap: 5px;">
+                        <!-- 分类页签会动态生成在这里 -->
+                    </div>
+                    <div id="cart-left-list" class="cart-list" style="display: grid; grid-template-columns: 1fr; gap: 10px; align-content: start;">
+                        <!-- 模组卡片 -->
                     </div>
                 </div>
 
-                <!-- 右侧：购物车 (按优先级排序) -->
+                <!-- 右侧：购物车 (按优先级排序，带微调按钮) -->
                 <div class="cart-right">
-                    <h3 style="margin-top: 0; font-size: 15px; color: #333; border-bottom: 1px solid #ddd; padding-bottom: 10px;">已选模组 (按优先级排序)</h3>
+                    <h3 style="margin-top: 0; font-size: 15px; color: #333; border-bottom: 1px solid #ddd; padding-bottom: 10px;">已选模组清单</h3>
                     <div id="cart-right-list" class="cart-list">
                         <p style="color:#888; font-size:12px; text-align:center; margin-top:20px;">暂无已选模组</p>
                     </div>
                 </div>
             </div>
             
-            <!-- 底部操作 -->
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px;">
-                <button onclick="clearCart()" style="padding: 8px 15px; background: #fff; color: #dc3545; border: 1px solid #dc3545; border-radius: 6px; cursor: pointer; font-size: 13px;">清空购物车</button>
-                <div style="display: flex; gap: 10px;">
-                    <button onclick="closeCartModal()" style="padding: 10px 20px; background: #f8f9fa; color: #333; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 14px;">取消</button>
-                    <button onclick="confirmCartAndAllocate()" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">⚡ 确认并智能分配</button>
-                </div>
+            <!-- 底部操作 (去掉清空按钮) -->
+            <div style="display: flex; justify-content: flex-end; align-items: center; margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px; gap: 10px;">
+                <button onclick="closeCartModal()" style="padding: 10px 20px; background: #f8f9fa; color: #333; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 14px;">取消</button>
+                <button onclick="confirmCartAndAllocate()" style="padding: 10px 25px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">⚡ 确认并智能分配</button>
             </div>
         </div>
     </div>
 
-    <!-- 1. 协商弹窗 -->
+    <!-- 协商弹窗 -->
     <div id="negotiation-modal" class="modal-overlay">
         <div style="background: white; padding: 25px; border-radius: 8px; width: 400px;">
             <h3 style="margin-top: 0; color: #dc3545;">⚠️ 引脚资源不足</h3>
@@ -213,7 +227,7 @@
         </div>
     </div>
 
-    <!-- 2. 参数微调弹窗 -->
+    <!-- 参数微调弹窗 -->
     <div id="edit-modal" class="modal-overlay">
         <div style="background: white; padding: 25px; border-radius: 8px; width: 350px;">
             <h3 style="margin-top: 0; color: #333;">⚙️ 微调参数</h3>
@@ -236,7 +250,7 @@
         </div>
     </div>
 
-    <!-- 3. 智能代码适配弹窗 -->
+    <!-- 智能代码适配弹窗 (保持不变) -->
     <div id="code-adapter-modal" class="modal-overlay">
         <div class="modal-content" style="width: 1100px; height: 80vh;">
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 20px;">
@@ -288,10 +302,9 @@
         </div>
     </div>
 
-    <!-- 数据与逻辑加载 (严格按照顺序引入) -->
+    <!-- 数据与逻辑加载 -->
     <script src="data/boards.js"></script>
     <script src="data/modules.js"></script>
-    
     <script src="js/diagnostics.js"></script>
     <script src="js/engine.js"></script>
     <script src="js/ui-components.js"></script>
