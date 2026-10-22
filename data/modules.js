@@ -2,7 +2,7 @@ window.globalModuleData = {
     // --- 显示类 ---
     "i2c_oled": {
         "name": "0.96寸 OLED (I2C)", "category": "显示类", "interface": "I2C", "signal_voltage": 3.3,
-        "peak_current_ma": 20,
+        "peak_current_ma": 20, "priority": 20, // 优先级最低：I2C 可以共享引脚，不占大块资源
         "requirements": [
             { "signal": "SDA", "count": 1, "optional": false, "internal_pull": "up", "requires_output": true },
             { "signal": "SCL", "count": 1, "optional": false, "internal_pull": "up", "requires_output": true }
@@ -14,7 +14,7 @@ window.globalModuleData = {
     },
     "spi_tft": {
         "name": "2.0寸 TFT IPS 彩屏", "category": "显示类", "interface": "SPI", "signal_voltage": 3.3,
-        "peak_current_ma": 180,
+        "peak_current_ma": 180, "priority": 90, // 优先级高：SPI 需要多根线，且包含高频信号
         "requirements": [
             { "signal": "MOSI", "count": 1, "optional": false, "high_speed": true, "requires_output": true },
             { "signal": "SCK", "count": 1, "optional": false, "high_speed": true, "requires_output": true },
@@ -32,7 +32,7 @@ window.globalModuleData = {
     // --- 传感器类 ---
     "dht11": {
         "name": "DHT11 温湿度传感器", "category": "传感器类", "interface": "GPIO", "signal_voltage": 3.3,
-        "peak_current_ma": 5,
+        "peak_current_ma": 5, "priority": 50, // 优先级中等：需要独占一根 GPIO
         "requirements": [{ "signal": "DATA", "count": 1, "optional": false }],
         "power_pins": [
             { "pin": "VCC", "connect_to": "3.3V", "warning": "接主板 3.3V" },
@@ -41,7 +41,7 @@ window.globalModuleData = {
     },
     "aht20": {
         "name": "AHT20 温湿度 (I2C)", "category": "传感器类", "interface": "I2C", "signal_voltage": 3.3,
-        "peak_current_ma": 1,
+        "peak_current_ma": 1, "priority": 20,
         "requirements": [
             { "signal": "SDA", "count": 1, "optional": false, "internal_pull": "up" },
             { "signal": "SCL", "count": 1, "optional": false, "internal_pull": "up" }
@@ -53,7 +53,7 @@ window.globalModuleData = {
     },
     "mpu6050": {
         "name": "MPU6050 六轴 (I2C)", "category": "传感器类", "interface": "I2C", "signal_voltage": 3.3,
-        "peak_current_ma": 4,
+        "peak_current_ma": 4, "priority": 20,
         "requirements": [
             { "signal": "SDA", "count": 1, "optional": false, "internal_pull": "up" },
             { "signal": "SCL", "count": 1, "optional": false, "internal_pull": "up" }
@@ -65,7 +65,7 @@ window.globalModuleData = {
     },
     "ldr_sensor": {
         "name": "光敏电阻传感器 (模拟)", "category": "传感器类", "interface": "ADC", "signal_voltage": 3.3,
-        "peak_current_ma": 1, "requires_adc": true,
+        "peak_current_ma": 1, "requires_adc": true, "priority": 50,
         "requirements": [{ "signal": "AOUT", "count": 1, "optional": false }],
         "power_pins": [
             { "pin": "VCC", "connect_to": "3.3V", "warning": "接主板 3.3V" },
@@ -76,7 +76,7 @@ window.globalModuleData = {
     // --- 视觉类 ---
     "ov2640": {
         "name": "OV2640 摄像头 (DVP)", "category": "视觉类", "interface": "DVP", "signal_voltage": 3.3,
-        "peak_current_ma": 200,
+        "peak_current_ma": 200, "priority": 100, // 优先级最高：需要 14 根线，必须第一个挑位置
         "requirements": [
             { "signal": "SDA", "count": 1, "optional": false }, 
             { "signal": "SCL", "count": 1, "optional": false },
@@ -96,7 +96,7 @@ window.globalModuleData = {
     // --- 音频类 ---
     "mic_inmp441": {
         "name": "INMP441 麦克风 (I2S)", "category": "音频类", "interface": "I2S_IN", "signal_voltage": 3.3,
-        "peak_current_ma": 3,
+        "peak_current_ma": 3, "priority": 80, // 优先级较高：I2S 需要专用的时钟线
         "requirements": [
             { "signal": "BCLK", "count": 1, "optional": false, "high_speed": true, "requires_output": true },
             { "signal": "LRC", "count": 1, "optional": false, "requires_output": true },
@@ -109,7 +109,7 @@ window.globalModuleData = {
     },
     "max98357a": {
         "name": "MAX98357A 功放 (I2S)", "category": "音频类", "interface": "I2S_OUT", "signal_voltage": 3.3,
-        "peak_current_ma": 300,
+        "peak_current_ma": 300, "priority": 85, // 优先级高
         "requirements": [
             { "signal": "BCLK", "count": 1, "optional": false, "high_speed": true, "requires_output": true },
             { "signal": "LRC", "count": 1, "optional": false, "requires_output": true },
@@ -124,13 +124,13 @@ window.globalModuleData = {
     // --- 通信类 ---
     "wifi_module": {
         "name": "Wi-Fi 射频模块 (内置)", "category": "通信类", "interface": "INTERNAL", "signal_voltage": 3.3,
-        "peak_current_ma": 250, "uses_wifi": true,
+        "peak_current_ma": 250, "uses_wifi": true, "priority": 10, // 系统自带，不占引脚
         "requirements": [],
         "power_pins": []
     },
     "4g_module": {
         "name": "4G 通信模组 (Cat.1)", "category": "通信类", "interface": "UART", "signal_voltage": 3.3,
-        "peak_current_ma": 500, "uses_wifi": true,
+        "peak_current_ma": 500, "uses_wifi": true, "priority": 60, // UART 相对宽松
         "requirements": [
             { "signal": "TX", "count": 1, "optional": false },
             { "signal": "RX", "count": 1, "optional": false },
@@ -145,7 +145,7 @@ window.globalModuleData = {
     // --- 执行器类 ---
     "relay_low_trigger": {
         "name": "低电平触发继电器", "category": "执行器类", "interface": "GPIO", "signal_voltage": 3.3,
-        "peak_current_ma": 70,
+        "peak_current_ma": 70, "priority": 40,
         "requirements": [{ "signal": "IN", "count": 1, "optional": false, "default_state": "LOW", "requires_output": true }],
         "power_pins": [
             { "pin": "VCC", "connect_to": "5V", "warning": "接主板 5V / 外部 5V" },
@@ -154,7 +154,7 @@ window.globalModuleData = {
     },
     "sg90_servo": {
         "name": "SG90 舵机 (PWM)", "category": "执行器类", "interface": "PWM", "signal_voltage": 3.3,
-        "peak_current_ma": 700,
+        "peak_current_ma": 700, "priority": 50,
         "requirements": [{ "signal": "PWM", "count": 1, "optional": false, "requires_output": true }],
         "power_pins": [
             { "pin": "VCC", "connect_to": "5V", "warning": "接主板 5V / 必须外部独立 5V" },
