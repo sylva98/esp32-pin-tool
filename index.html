@@ -38,7 +38,7 @@
         /* 打印专用样式 */
         @media print {
             body { background: #fff; padding: 0; margin: 0; display: block; height: auto; }
-            .sidebar, .main-content, #global-tooltip, #code-adapter-modal, #statusModal { display: none !important; }
+            .sidebar, .main-content, #global-tooltip, #code-adapter-modal, #statusModal, #cart-modal { display: none !important; }
             #print-section { display: block !important; width: 100%; padding: 20px; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #000; }
             .print-header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
             .print-title { font-size: 24px; font-weight: bold; margin: 0 0 10px 0; }
@@ -76,6 +76,14 @@
         /* 通用的 Modal */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 1002; justify-content: center; align-items: center;}
         .modal-content { background: white; padding: 25px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); max-height: 90vh; display: flex; flex-direction: column;}
+
+        /* ================= 购物车弹窗样式 ================= */
+        .cart-layout { display: flex; gap: 20px; height: 60vh; }
+        .cart-left { flex: 1; border-right: 1px solid #eee; padding-right: 20px; display: flex; flex-direction: column;}
+        .cart-right { flex: 1; display: flex; flex-direction: column; background: #fafafa; border-radius: 8px; padding: 15px;}
+        .cart-list { flex: 1; overflow-y: auto; margin-top: 10px; }
+        .cart-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; background: white; border: 1px solid #eee; border-radius: 6px; margin-bottom: 8px; transition: all 0.2s;}
+        .cart-item:hover { border-color: #007bff; box-shadow: 0 2px 5px rgba(0,0,0,0.05);}
     </style>
 </head>
 <body>
@@ -92,30 +100,12 @@
 
         <h2 id="board-title" style="display: none;"></h2>
         
-        <!-- 2. 外接模组选择 -->
-        <div style="margin-bottom: 15px;">
-            <label style="font-size: 13px; font-weight: bold; color: #333; display: block; margin-bottom: 8px;">选择外接模组：</label>
-            <div class="custom-select-wrapper" id="module-combobox">
-                <div class="custom-select-display" id="combobox-display" onclick="toggleCombobox()">
-                    <span id="combobox-text">-- 请选择 --</span>
-                    <span style="font-size: 10px; color: #888;">▼</span>
-                </div>
-                <div class="custom-select-panel" id="combobox-panel">
-                    <div class="custom-select-search">
-                        <input type="text" id="combobox-search" placeholder="🔍 搜索型号..." oninput="filterComboboxOptions()" onclick="event.stopPropagation()">
-                    </div>
-                    <div class="custom-select-tabs" id="combobox-tabs"></div>
-                    <div class="custom-select-options" id="combobox-options"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 3. 操作按钮 -->
-        <button onclick="addModule()" style="width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; transition: background 0.2s; margin-bottom: 20px;">智能分配引脚</button>
+        <!-- 2. 核心：打开购物车按钮 -->
+        <button onclick="openCartModal()" style="width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; transition: background 0.2s; margin-bottom: 20px;">➕ 添加与管理模组</button>
 
         <div style="height: 1px; background: var(--border); margin: 0 0 20px 0;"></div>
         
-        <!-- 4. 已接入模组列表 -->
+        <!-- 3. 已接入模组列表 -->
         <h2 style="font-size: 15px; margin-top: 0; border-bottom: none; padding-bottom: 0; margin-bottom: 10px;">已接入模组</h2>
         <div id="active-modules-list" style="flex:1; overflow-y: auto;">
             <p style="color:#888; font-size:12px; text-align:center; margin-top: 20px;">暂无模组</p>
@@ -124,12 +114,10 @@
 
         <div style="height: 1px; background: var(--border); margin: 20px 0;"></div>
         
-        <!-- 5. 导出与适配配置 -->
+        <!-- 4. 导出与适配配置 -->
         <h2 style="font-size: 15px; margin-top: 0; border-bottom: none; padding-bottom: 0; margin-bottom: 10px;">导出与适配</h2>
         <button onclick="exportConfig()" style="width: 100%; padding: 10px; background: #28a745; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; margin-bottom: 10px;">导出 JSON 配置</button>
-        
         <button onclick="openCodeAdapter()" style="width: 100%; padding: 10px; background: #17a2b8; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; margin-bottom: 10px; font-weight: bold;">⚡ 智能代码适配</button>
-        
         <button onclick="printWiringSheet()" style="width: 100%; padding: 10px; background: #6f42c1; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer;">🖨️ 打印接线单</button>
     </div>
 
@@ -172,6 +160,43 @@
 
     <!-- ===================== 弹窗区 ===================== -->
     
+    <!-- 购物车弹窗 -->
+    <div id="cart-modal" class="modal-overlay">
+        <div class="modal-content" style="width: 900px; height: 75vh;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 15px;">
+                <h2 style="margin: 0; font-size: 18px;">🛒 配置我的硬件方案</h2>
+                <button onclick="closeCartModal()" style="background: transparent; border: none; font-size: 20px; cursor: pointer; color: #888;">✖</button>
+            </div>
+            
+            <div class="cart-layout">
+                <!-- 左侧：模组库 -->
+                <div class="cart-left">
+                    <input type="text" id="cart-search" placeholder="🔍 搜索模组库..." oninput="renderCartLeftList()" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 10px; box-sizing: border-box; outline: none;">
+                    <div id="cart-left-list" class="cart-list" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-content: start;">
+                        <!-- 动态渲染模组库 -->
+                    </div>
+                </div>
+
+                <!-- 右侧：购物车 (按优先级排序) -->
+                <div class="cart-right">
+                    <h3 style="margin-top: 0; font-size: 15px; color: #333; border-bottom: 1px solid #ddd; padding-bottom: 10px;">已选模组 (按优先级排序)</h3>
+                    <div id="cart-right-list" class="cart-list">
+                        <p style="color:#888; font-size:12px; text-align:center; margin-top:20px;">暂无已选模组</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 底部操作 -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px;">
+                <button onclick="clearCart()" style="padding: 8px 15px; background: #fff; color: #dc3545; border: 1px solid #dc3545; border-radius: 6px; cursor: pointer; font-size: 13px;">清空购物车</button>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="closeCartModal()" style="padding: 10px 20px; background: #f8f9fa; color: #333; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 14px;">取消</button>
+                    <button onclick="confirmCartAndAllocate()" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">⚡ 确认并智能分配</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 1. 协商弹窗 -->
     <div id="negotiation-modal" class="modal-overlay">
         <div style="background: white; padding: 25px; border-radius: 8px; width: 400px;">
@@ -219,14 +244,12 @@
                 <button onclick="autoMatchAll()" style="background: transparent; color: #6c757d; border: 1px solid #ced4da; padding: 6px 12px; border-radius: 20px; cursor: pointer; font-size: 13px; transition: 0.2s;">✨ 一键恢复智能推荐</button>
             </div>
             
-            <!-- 文件上传区 -->
             <div id="adapter-upload-area" style="text-align: center; padding: 40px; border: 2px dashed #ccc; border-radius: 8px; background: #fafafa; margin-bottom: 20px;">
                 <p style="font-size: 15px; color: #555; margin-bottom: 15px;">请上传你下载的开源项目引脚配置文件（支持 .h / .c / .cpp / .ino / .txt）</p>
                 <input type="file" id="source-file-input" accept=".h,.c,.cpp,.ino,.txt" onchange="handleFileUpload(event)" style="display: none;">
                 <button onclick="document.getElementById('source-file-input').click()" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">📂 选择本地文件</button>
             </div>
 
-            <!-- 映射表区 (默认隐藏) -->
             <div id="adapter-mapping-area" style="display: none; flex: 1; overflow-y: auto;">
                 <div class="alert" style="padding: 12px 15px; border-radius: 6px; margin-bottom: 20px; font-size: 13px; line-height: 1.5; background: #e8f5e9; color: #1b5e20; border: 1px solid #c8e6c9;">
                     💡 系统已自动规划处理状态。<strong>如果对系统的安排不满意，点击任何彩色标签都可以随时强行修改。</strong>
@@ -242,13 +265,10 @@
                             <th>处理状态</th>
                         </tr>
                     </thead>
-                    <tbody id="mapping-table-body">
-                        <!-- 动态生成 -->
-                    </tbody>
+                    <tbody id="mapping-table-body"></tbody>
                 </table>
             </div>
 
-            <!-- 底部操作区 -->
             <div style="display: flex; justify-content: flex-end; gap: 15px; margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px;">
                 <button onclick="closeCodeAdapter()" style="padding: 10px 20px; background: #f8f9fa; color: #333; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 14px;">取消</button>
                 <button id="adapter-confirm-btn" onclick="executeReplacement()" disabled style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; opacity: 0.5;">确认处理并生成源码</button>
@@ -256,15 +276,11 @@
         </div>
     </div>
 
-    <!-- 4. 状态修改小弹窗 (用于修改映射表里的红黄蓝绿) -->
     <div id="statusModal" class="modal-overlay" style="z-index: 1005;">
         <div class="modal-content" style="width: 480px;">
             <h3 style="margin-top: 0; font-size: 16px; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px;">处理设置：<span id="modal-var-name" style="color:#007bff;"></span></h3>
-            
             <div id="analysis-box" style="background: #f8f9fa; border: 1px solid #eee; padding: 12px; border-radius: 6px; font-size: 13px; margin-bottom: 15px; line-height: 1.6; color: #333;"></div>
-            
             <div id="options-container"></div>
-            
             <div style="display:flex; justify-content:flex-end; margin-top:20px; gap:10px;">
                 <button onclick="closeStatusModal()" style="padding: 10px 20px; background: #f8f9fa; color: #333; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 14px;">取消</button>
                 <button onclick="applyStatus()" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">应用</button>
@@ -272,16 +288,16 @@
         </div>
     </div>
 
-    <!-- 数据与逻辑加载 -->
+    <!-- 数据与逻辑加载 (严格按照顺序引入) -->
     <script src="data/boards.js"></script>
     <script src="data/modules.js"></script>
     
     <script src="js/diagnostics.js"></script>
     <script src="js/engine.js"></script>
     <script src="js/ui-components.js"></script>
+    <script src="js/cart-manager.js"></script>
     <script src="js/exporter.js"></script>
     <script src="js/app.js"></script>
-    <!-- 注意：这里已经正式引入了代码适配器逻辑 -->
     <script src="js/code-adapter.js"></script>
 </body>
 </html>
