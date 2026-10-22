@@ -179,26 +179,25 @@ function renderModules() {
     const maxCurrent = boardConfig.max_current_ma || 500;
     const isOverload = totalCurrent > maxCurrent;
 
+    // 物理走线警告
     if (typeof checkHighSpeedWarning === 'function' && checkHighSpeedWarning()) {
         const hwWarning = document.createElement('div');
-        hwWarning.style.cssText = "font-size: 13px; color: #856404; background-color: #fff3cd; border: 1px solid #ffeeba; padding: 12px; border-radius: 6px; margin-bottom: 10px; display: flex; align-items: center; line-height: 1.5;";
+        hwWarning.style.cssText = "font-size: 13px; color: #856404; background-color: #fff3cd; border: 1px solid #ffeeba; padding: 12px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; line-height: 1.5;";
         hwWarning.innerHTML = `<span style="font-size: 16px; margin-right: 8px;">⚠️</span> <div><strong>物理走线警告：</strong>您的项目使用了 SPI/I2S 等高频信号引脚。请确保排线长度不超过 10cm，且信号线尽量分开或包地。</div>`;
         wiringList.appendChild(hwWarning);
     }
     
-    // 🔥 已经彻底删除了那个占地方的红色供电指导框
-
     activeModules.forEach((mod, index) => {
         const modData = moduleLibrary[mod.id];
         
         const modDiv = document.createElement('div');
         modDiv.className = 'module-tag';
+        // 🔥 修改：去掉了这里的微调齿轮按钮
         modDiv.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
                 <strong>${modData.name}</strong> 
                 <div>
                     <span style="margin-right:10px;">#${index+1}</span>
-                    <button onclick="openEditPanel(${index})" style="background:none; border:none; cursor:pointer; font-size:16px; padding:0; width:auto; margin:0;" title="微调参数">⚙️</button>
                 </div>
             </div>
         `;
@@ -266,111 +265,46 @@ function renderModules() {
 // 3. 交互操作
 // ==========================================
 function addModule() {
-    const modId = selectedModuleId;
-    if (!modId) return alert('请先选择模组');
-    const modData = moduleLibrary[modId];
-    
-    if (modData.interface === 'DVP' && boardConfig.max_pin <= 21) {
-        return alert(`❌ 资源不足：${boardConfig.boardName} 的引脚数量较少，无法支撑 DVP 摄像头。`);
-    }
-    
-    let currentTotal = 0;
-    activeModules.forEach(mod => {
-        const mData = moduleLibrary[mod.id];
-        currentTotal += (mod.overrides?.current || mData.peak_current_ma || 0);
-    });
-    const newTotal = currentTotal + (modData.peak_current_ma || 0);
-    const maxCurrent = boardConfig.max_current_ma || 500;
-    
-    if (newTotal > maxCurrent) {
-        const choice = confirm(
-            `⚠️ 供电超载警告\n\n` +
-            `当前系统总功耗：${currentTotal} mA\n` +
-            `添加该模组后：${newTotal} mA\n` +
-            `主控安全上限：${maxCurrent} mA\n\n` +
-            `【后果】若继续从主板取电，可能会触发电压保护，导致设备无限重启。\n\n` +
-            `【方案 1】如果您能在软件/硬件上限制功耗（如调小音量、调暗背光），请点“确定”，然后在左侧模组旁边的 ⚙️ 微调面板中降低电流预估。\n\n` +
-            `【方案 2】如果您打算给该模组接外部独立电源，请点“确定”，稍后查看接线指导。\n\n` +
-            `是否继续添加？`
-        );
-        if (!choice) return;
-    }
-    
-    if (activeModules.find(m => m.id === modId) && !confirm(`已经添加了【${moduleLibrary[modId].name}】。\n强行添加可能会导致冲突，确定继续吗？`)) return;
-    
-    let pinsStateCopy = {};
-    for (let i = 0; i <= boardConfig.max_pin; i++) { if(pinsState[i]) { pinsStateCopy[i] = { ...pinsState[i] }; } }
-    
-    const result = tryAllocate(modData, pinsStateCopy);
-    
-    if (result.missingRequired.length > 0) {
-        let totalNeed = 0;
-        modData.requirements.forEach(r => { if (!r.optional) totalNeed += r.count; });
-        
-        let availableCount = 0;
-        for (let i = 0; i <= boardConfig.max_pin; i++) {
-            if (pinsState[i] && pinsState[i].state === 'free') availableCount++;
+    // 这个函数现在基本用不到了，但为了防止底层报错依然保留
+}
+
+// 释放引脚逻辑保持不变
+function releasePin(pinNum) {
+    if (pinsState[pinNum].state !== 'used') return;
+    if(confirm(`确定要强制释放 GPIO ${pinNum} 吗？对应的模组将被移除。`)) {
+        const ownerId = pinsState[pinNum].owner;
+        const modIndex = activeModules.findIndex(m => m.id === ownerId && Object.values(m.connections).some(val => String(val).split(',').includes(String(pinNum))));
+        if (modIndex > -1) {
+            activeModules.splice(modIndex, 1);
+            activeBuses = { I2C: {}, SPI: {}, I2S_IN: {}, I2S_OUT: {}, UART: {} };
+            initPins();
+            activeModules.forEach(mod => {
+                for (const [signal, pinStr] of Object.entries(mod.connections)) {
+                    if (pinStr === "dropped") continue;
+                    String(pinStr).split(',').forEach(p => {
+                        pinsState[p] = { state: 'used', owner: mod.id, signal: signal };
+                        if (mod.interface && (signal === 'SDA' || signal === 'SCL' || signal === 'MOSI' || signal === 'MISO' || signal === 'SCK' || signal === 'BCLK' || signal === 'LRC')) { 
+                            activeBuses[mod.interface][signal] = Number(p); 
+                        }
+                    });
+                }
+            });
+            renderPins(); renderModules(); updatePowerBudget();
         }
-
-        let errMsg = `⚠️ 资源分配失败\n\n`;
-        errMsg += `【模组需求】总计 ${totalNeed} 根引脚\n`;
-        errMsg += `【当前空闲】仅剩 ${availableCount} 根引脚\n\n`;
-        errMsg += `系统无法满足必选信号：${result.missingRequired.join(', ')}。\n`;
-        errMsg += `强行分配会导致严重的引脚冲突（甚至烧板）。\n\n`;
-        errMsg += `💡 解决方案：\n1. 移除部分已接入的模组以释放引脚。\n2. 或在微调面板中裁剪可选/批量引脚数量。`;
-        
-        return alert(errMsg);
     }
-    
-    if (result.missingOptional.length === 0) { 
-        commitAllocation(modId, result.allocations); 
-        checkWifiAdcConflict(modId);
-        return; 
-    }
-    
-    pendingModule = { id: modId, allocations: result.allocations };
-    pendingOptionalDrops = result.missingOptional; 
-    
-    const optionsDiv = document.getElementById('negotiation-options');
-    optionsDiv.innerHTML = '';
-    result.missingOptional.forEach(signal => {
-        const label = document.createElement('label');
-        label.style.display = 'block'; label.style.marginBottom = '5px';
-        label.innerHTML = `<input type="checkbox" value="${signal}" checked> 放弃 ${signal} 引脚 (余量不足)`;
-        optionsDiv.appendChild(label);
-    });
-    document.getElementById('negotiation-modal').style.display = 'flex';
-}
-
-function cancelNegotiation() {
-    document.getElementById('negotiation-modal').style.display = 'none';
-    pendingModule = null;
-}
-
-function confirmNegotiation() {
-    document.getElementById('negotiation-modal').style.display = 'none';
-    const confirmedDrops = Array.from(document.querySelectorAll('#negotiation-options input[type="checkbox"]:checked')).map(cb => cb.value);
-    const finalAllocations = { ...pendingModule.allocations };
-    
-    confirmedDrops.forEach(signal => { finalAllocations[signal] = "dropped"; });
-    
-    const stubbornSignals = pendingOptionalDrops.filter(s => !confirmedDrops.includes(s));
-    if (stubbornSignals.length > 0) { stubbornSignals.forEach(sig => finalAllocations[sig] = "dropped"); }
-    
-    const modId = pendingModule.id;
-    commitAllocation(modId, finalAllocations);
-    checkWifiAdcConflict(modId);
-    pendingModule = null;
 }
 
 function resetAll() {
     if(confirm('确定要清空所有配置吗？')) { 
+        cartSelectedModules = []; // 清空购物车
         const currentBoard = document.getElementById('board-select').value || Object.keys(globalBoards)[0];
         loadBoard(currentBoard);
+        closeCartModal();
     }
 }
+
 // ==========================================
-// 4. 购物车批量分配引擎 (新增)
+// 4. 购物车批量分配引擎
 // ==========================================
 function confirmCartAndAllocate() {
     if (cartSelectedModules.length === 0) {
@@ -386,27 +320,22 @@ function confirmCartAndAllocate() {
     let failedModules = [];
 
     // 2. 按照购物车已经排好的优先级顺序，依次尝试分配
-    // (注意：cartSelectedModules 在 cart-manager.js 中已经被从大到小排好序了)
     cartSelectedModules.forEach(item => {
         const modId = item.id;
         const modData = moduleLibrary[modId];
 
-        // 复制一份当前的引脚状态，用于沙盘推演
         let pinsStateCopy = {};
         for (let i = 0; i <= boardConfig.max_pin; i++) { 
             if(pinsState[i]) { pinsStateCopy[i] = { ...pinsState[i] }; } 
         }
 
-        // 调用引擎尝试分配
         const result = tryAllocate(modData, pinsStateCopy);
 
         if (result.missingRequired.length > 0) {
-            // 如果必选引脚不够，记录为失败，不报错中断，继续尝试下一个
             failedModules.push(modData.name);
         } else {
-            // 如果分配成功（或者只有可选引脚缺失），直接落地
-            commitAllocation(modId, result.allocations);
-            // 检查这个模组有没有触发特殊冲突（如 Wi-Fi 与 ADC2）
+            // 提交分配，并把购物车里的 overrides 存进 activeModules 实例里
+            commitAllocation(modId, result.allocations, item.overrides);
             checkWifiAdcConflict(modId);
             successCount++;
         }
@@ -420,18 +349,8 @@ function confirmCartAndAllocate() {
 
     // 4. 结果反馈
     if (failedModules.length > 0) {
-        alert(`⚠️ 全局分配完成，但有部分模组未能成功接入。\n\n✅ 成功接入：${successCount} 个模组\n❌ 因引脚不足失败：${failedModules.join('、')}\n\n建议：请移除部分大功耗/多引脚模组，或使用微调面板裁剪引脚数量后重试。`);
+        alert(`⚠️ 全局分配完成，但有部分模组未能成功接入。\n\n✅ 成功接入：${successCount} 个模组\n❌ 因引脚不足失败：${failedModules.join('、')}\n\n建议：请移除部分大功耗/多引脚模组后重试。`);
     } else {
         alert(`🎉 完美！购物车内 ${successCount} 个模组已全部成功分配引脚！`);
-    }
-}
-
-// 覆盖原有的“重置全部”按钮逻辑，适配新的购物车模式
-function resetAll() {
-    if(confirm('确定要清空所有配置吗？')) { 
-        cartSelectedModules = []; // 清空购物车
-        const currentBoard = document.getElementById('board-select').value || Object.keys(globalBoards)[0];
-        loadBoard(currentBoard);
-        closeCartModal();
     }
 }
