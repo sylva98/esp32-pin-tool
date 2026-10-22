@@ -80,7 +80,7 @@
         /* ================= 购物车弹窗样式 (重写) ================= */
         .cart-layout { display: flex; gap: 20px; height: 60vh; }
         .cart-left { flex: 1; border-right: 1px solid #eee; padding-right: 20px; display: flex; flex-direction: column;}
-        .cart-right { flex: 1; display: flex; flex-direction: column; background: #fafafa; border-radius: 8px; padding: 15px;}
+        .cart-right { flex: 1; display: flex; flex-direction: column; background: #fafafa; border-radius: 8px; padding: 20px;} /* 增加 padding 与左侧对齐 */
         .cart-list { flex: 1; overflow-y: auto; margin-top: 10px; }
         
         /* 左侧模组库卡片 */
@@ -176,10 +176,10 @@
     <!-- 购物车弹窗 (重写UI) -->
     <div id="cart-modal" class="modal-overlay">
         <div class="modal-content" style="width: 1000px; height: 75vh; padding: 20px;">
-            <!-- 头部 -->
+            <!-- 头部：严格单行 -->
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 15px;">
-                <h2 style="margin: 0; font-size: 18px;">🛒 配置我的硬件方案</h2>
-                <button onclick="clearCart()" style="background: none; border: none; color: #dc3545; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 4px;">🗑️ 清空</button>
+                <h2 style="margin: 0; font-size: 18px; white-space: nowrap;">🛒 配置我的硬件方案</h2>
+                <button onclick="clearCart()" style="background: none; border: none; color: #dc3545; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 4px; white-space: nowrap;">🗑️ 清空</button>
             </div>
             
             <div class="cart-layout">
@@ -194,16 +194,16 @@
                     </div>
                 </div>
 
-                <!-- 右侧：购物车 (按优先级排序，带微调按钮) -->
+                <!-- 右侧：购物车 -->
                 <div class="cart-right">
-                    <h3 style="margin-top: 0; font-size: 15px; color: #333; border-bottom: 1px solid #ddd; padding-bottom: 10px;">已选模组清单</h3>
+                    <h3 style="margin-top: 0; font-size: 15px; color: #333; padding-bottom: 10px; border-bottom: 1px solid #eee; margin-bottom: 10px;">已选模组清单</h3>
                     <div id="cart-right-list" class="cart-list">
                         <p style="color:#888; font-size:12px; text-align:center; margin-top:20px;">暂无已选模组</p>
                     </div>
                 </div>
             </div>
             
-            <!-- 底部操作 (去掉清空按钮) -->
+            <!-- 底部操作 -->
             <div style="display: flex; justify-content: flex-end; align-items: center; margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px; gap: 10px;">
                 <button onclick="closeCartModal()" style="padding: 10px 20px; background: #f8f9fa; color: #333; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 14px;">取消</button>
                 <button onclick="confirmCartAndAllocate()" style="padding: 10px 25px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">⚡ 确认并智能分配</button>
@@ -250,7 +250,7 @@
         </div>
     </div>
 
-    <!-- 智能代码适配弹窗 (保持不变) -->
+    <!-- 智能代码适配弹窗 -->
     <div id="code-adapter-modal" class="modal-overlay">
         <div class="modal-content" style="width: 1100px; height: 80vh;">
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 20px;">
