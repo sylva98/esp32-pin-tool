@@ -369,3 +369,69 @@ function resetAll() {
         loadBoard(currentBoard);
     }
 }
+// ==========================================
+// 4. 购物车批量分配引擎 (新增)
+// ==========================================
+function confirmCartAndAllocate() {
+    if (cartSelectedModules.length === 0) {
+        return alert('购物车是空的，请先选择需要接入的模组。');
+    }
+
+    // 1. 重置当前状态（回到初始干净状态）
+    activeModules = [];
+    activeBuses = { I2C: {}, SPI: {}, I2S_IN: {}, I2S_OUT: {}, UART: {} };
+    initPins();
+
+    let successCount = 0;
+    let failedModules = [];
+
+    // 2. 按照购物车已经排好的优先级顺序，依次尝试分配
+    // (注意：cartSelectedModules 在 cart-manager.js 中已经被从大到小排好序了)
+    cartSelectedModules.forEach(item => {
+        const modId = item.id;
+        const modData = moduleLibrary[modId];
+
+        // 复制一份当前的引脚状态，用于沙盘推演
+        let pinsStateCopy = {};
+        for (let i = 0; i <= boardConfig.max_pin; i++) { 
+            if(pinsState[i]) { pinsStateCopy[i] = { ...pinsState[i] }; } 
+        }
+
+        // 调用引擎尝试分配
+        const result = tryAllocate(modData, pinsStateCopy);
+
+        if (result.missingRequired.length > 0) {
+            // 如果必选引脚不够，记录为失败，不报错中断，继续尝试下一个
+            failedModules.push(modData.name);
+        } else {
+            // 如果分配成功（或者只有可选引脚缺失），直接落地
+            commitAllocation(modId, result.allocations);
+            // 检查这个模组有没有触发特殊冲突（如 Wi-Fi 与 ADC2）
+            checkWifiAdcConflict(modId);
+            successCount++;
+        }
+    });
+
+    // 3. 关闭购物车弹窗，刷新界面
+    closeCartModal();
+    renderPins();
+    renderModules();
+    updatePowerBudget();
+
+    // 4. 结果反馈
+    if (failedModules.length > 0) {
+        alert(`⚠️ 全局分配完成，但有部分模组未能成功接入。\n\n✅ 成功接入：${successCount} 个模组\n❌ 因引脚不足失败：${failedModules.join('、')}\n\n建议：请移除部分大功耗/多引脚模组，或使用微调面板裁剪引脚数量后重试。`);
+    } else {
+        alert(`🎉 完美！购物车内 ${successCount} 个模组已全部成功分配引脚！`);
+    }
+}
+
+// 覆盖原有的“重置全部”按钮逻辑，适配新的购物车模式
+function resetAll() {
+    if(confirm('确定要清空所有配置吗？')) { 
+        cartSelectedModules = []; // 清空购物车
+        const currentBoard = document.getElementById('board-select').value || Object.keys(globalBoards)[0];
+        loadBoard(currentBoard);
+        closeCartModal();
+    }
+}

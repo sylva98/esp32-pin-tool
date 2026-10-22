@@ -1,112 +1,38 @@
 // ==========================================
-// UI 组件层：组合框与微调面板
+// UI 组件层：微调面板
 // ==========================================
 
-// --- 1. 高级组合框逻辑 ---
-function initCombobox() {
-    const tabsContainer = document.getElementById('combobox-tabs');
-    const categories = new Set();
-    Object.values(moduleLibrary).forEach(mod => { if (mod.category) categories.add(mod.category); });
-    
-    let tabHtml = `<div class="custom-tab active" data-cat="ALL" onclick="switchCategory('ALL')">全部</div>`;
-    categories.forEach(cat => { tabHtml += `<div class="custom-tab" data-cat="${cat}" onclick="switchCategory('${cat}')">${cat}</div>`; });
-    tabsContainer.innerHTML = tabHtml;
-
-    renderComboboxOptions();
-    
-    document.addEventListener('click', (e) => {
-        const wrapper = document.getElementById('module-combobox');
-        if (wrapper && !wrapper.contains(e.target)) { document.getElementById('combobox-panel').classList.remove('show'); }
-    });
-}
-
-function toggleCombobox() {
-    const panel = document.getElementById('combobox-panel');
-    panel.classList.toggle('show');
-    if (panel.classList.contains('show')) { document.getElementById('combobox-search').focus(); }
-}
-
-function switchCategory(cat) {
-    currentCategory = cat;
-    document.querySelectorAll('.custom-tab').forEach(tab => { tab.classList.toggle('active', tab.dataset.cat === cat); });
-    renderComboboxOptions();
-}
-
-function filterComboboxOptions() {
-    currentSearch = document.getElementById('combobox-search').value.toLowerCase();
-    renderComboboxOptions();
-}
-
-function renderComboboxOptions() {
-    const optionsContainer = document.getElementById('combobox-options');
-    optionsContainer.innerHTML = '';
-    
-    let count = 0;
-    for (const [key, data] of Object.entries(moduleLibrary)) {
-        const matchCat = (currentCategory === 'ALL' || data.category === currentCategory);
-        const matchSearch = (data.name.toLowerCase().includes(currentSearch) || key.toLowerCase().includes(currentSearch));
-        
-        if (matchCat && matchSearch) {
-            const div = document.createElement('div');
-            div.className = 'custom-option';
-            if (key === selectedModuleId) div.style.background = '#e2e6ea';
-            div.innerText = data.name;
-            div.onclick = () => selectModule(key, data.name);
-            optionsContainer.appendChild(div);
-            count++;
-        }
-    }
-    if (count === 0) { optionsContainer.innerHTML = '<div style="padding:10px; text-align:center; color:#888; font-size:12px;">该分类下暂无模组</div>'; }
-}
-
-function selectModule(key, name) {
-    selectedModuleId = key;
-    document.getElementById('combobox-text').innerText = name;
-    document.getElementById('combobox-text').style.color = '#333';
-    document.getElementById('combobox-panel').classList.remove('show');
-    document.getElementById('combobox-search').value = ''; 
-    currentSearch = '';
-    renderComboboxOptions();
-}
-
-// --- 2. 微调面板逻辑 ---
 function openEditPanel(index) {
     editingModuleIndex = index;
     const mod = activeModules[index];
     const modData = moduleLibrary[mod.id];
 
-    // 填充电流
     const currentVal = mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0);
     document.getElementById('edit-current').value = currentVal;
     document.getElementById('edit-current').placeholder = `默认: ${modData.peak_current_ma || 0} mA`;
 
-    // 风险提示警告
     const warningContainerId = 'edit-physics-warning';
     let warningContainer = document.getElementById(warningContainerId);
     
     if (!warningContainer) {
         warningContainer = document.createElement('div');
         warningContainer.id = warningContainerId;
-        // 样式优化：稍浅的背景，更清晰的排版
         warningContainer.style.cssText = "background: #fff8e1; border-left: 4px solid #ffc107; color: #8a6d3b; padding: 12px; border-radius: 4px; font-size: 12px; margin-bottom: 15px; line-height: 1.6;";
-        
         const currentInput = document.getElementById('edit-current');
         currentInput.parentNode.insertBefore(warningContainer, currentInput.nextSibling);
     }
     
     if (modData.peak_current_ma > 100) {
         warningContainer.style.display = 'block';
-        // 文案优化：去除“防呆”等黑话
         warningContainer.innerHTML = `
             <strong>⚠️ 自定义功耗风险提示：</strong><br>
             修改此数值仅用于调整系统的规划预算。<strong>降低数值并不会减少模组实际物理耗电</strong>。<br>
-            如果您为了通过预算检查而强行改小数值，请务必确保在代码或硬件上采取了降功耗措施（如限制音量、调暗屏幕背光），否则实际运行时设备仍可能因供电不足而重启。建议优先考虑使用外部独立电源。
+            如果您为了通过预算检查而强行改小数值，请务必确保在代码或硬件上采取了降功耗措施。
         `;
     } else {
         warningContainer.style.display = 'none';
     }
 
-    // 填充引脚数量裁剪
     const pinCountSelect = document.getElementById('edit-pin-count');
     pinCountSelect.innerHTML = '';
     const batchReq = modData.requirements.find(r => r.count > 1);
@@ -127,7 +53,6 @@ function openEditPanel(index) {
         countContainer.style.display = 'none';
     }
 
-    // 渲染单线重排列表
     const pinListContainer = document.getElementById('edit-pin-list');
     pinListContainer.innerHTML = '';
     for (const [signal, pinStr] of Object.entries(mod.connections)) {
@@ -149,7 +74,6 @@ function closeEditPanel() {
     editingModuleIndex = -1;
 }
 
-// 检查指定引脚是否引发串扰
 function checkCrosstalkWarning(pin, currentReq) {
     if (!currentReq || !currentReq.high_speed) return null;
     const adjPins = [pin - 1, pin + 1];
@@ -161,7 +85,7 @@ function checkCrosstalkWarning(pin, currentReq) {
             if (ownerModData) {
                 const ownerReq = ownerModData.requirements.find(r => r.signal === ownerSignal);
                 if (ownerReq && ownerReq.high_speed) {
-                    return `⚠️ 严重警告：GPIO ${pin} 紧邻 GPIO ${adj}（已有高频信号 ${ownerSignal}）。强行相邻布线会导致严重的电磁串扰，极易导致数据错乱或死机！建议换一个引脚。`;
+                    return `⚠️ 严重警告：GPIO ${pin} 紧邻 GPIO ${adj}（已有高频信号 ${ownerSignal}）。强行相邻布线会导致严重的电磁串扰！`;
                 }
             }
         }
@@ -169,7 +93,6 @@ function checkCrosstalkWarning(pin, currentReq) {
     return null;
 }
 
-// 单线智能重排
 function autoReroutePin(signal) {
     const mod = activeModules[editingModuleIndex];
     const modData = moduleLibrary[mod.id];
@@ -215,7 +138,6 @@ function autoReroutePin(signal) {
     }
 }
 
-// 保存微调参数
 function saveModuleParams() {
     const newCurrent = Number(document.getElementById('edit-current').value);
     const mod = activeModules[editingModuleIndex];
@@ -234,8 +156,6 @@ function saveModuleParams() {
             const toDrop = currentPins.splice(targetCount);
             toDrop.forEach(p => { if (pinsState[Number(p)]) pinsState[Number(p)] = { state: 'free', label: 'Free' }; });
             mod.connections[batchReq.signal] = currentPins.join(',');
-        } else if (targetCount > currentPins.length) {
-            alert("目前仅支持裁剪引脚数量，暂不支持微调面板内自动增配引脚。请重置后重新分配。");
         }
     }
 
