@@ -35,10 +35,10 @@
         .custom-option:hover { background: #e9ecef; }
         .custom-option:last-child { border-bottom: none; }
 
-        /* 🌟 打印专用样式 🌟 */
+        /* 打印专用样式 */
         @media print {
             body { background: #fff; padding: 0; margin: 0; display: block; height: auto; }
-            .sidebar, .main-content, #global-tooltip { display: none !important; }
+            .sidebar, .main-content, #global-tooltip, #code-adapter-modal, #statusModal { display: none !important; }
             #print-section { display: block !important; width: 100%; padding: 20px; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #000; }
             .print-header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
             .print-title { font-size: 24px; font-weight: bold; margin: 0 0 10px 0; }
@@ -53,6 +53,29 @@
             .print-checkbox { width: 20px; height: 20px; border: 2px solid #333; display: inline-block; vertical-align: middle; }
             .print-footer { text-align: center; font-size: 12px; color: #888; margin-top: 40px; border-top: 1px solid #ccc; padding-top: 10px; }
         }
+
+        /* ================= 代码适配器专用样式 ================= */
+        .adapter-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+        .adapter-table th, .adapter-table td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; vertical-align: middle;}
+        .adapter-table th { background: #f8f9fa; font-weight: bold; color: #555; }
+        
+        .status-tag {
+            display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+            padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 12px; 
+            text-align: center; min-width: 100px; white-space: nowrap; transition: all 0.3s ease;
+        }
+        .tag-clickable { cursor: pointer; }
+        .tag-clickable:hover { transform: scale(1.05); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+        
+        .bg-green { background: #d4edda; color: #28a745; border: 1px solid #c3e6cb; }
+        .bg-blue { background: #cce5ff; color: #004085; border: 1px solid #b8daff; }
+        .bg-yellow { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+        .bg-gray { background: #e2e3e5; color: #383d41; border: 1px solid #d6d8db; }
+        .bg-red { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+
+        /* 通用的 Modal */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 1002; justify-content: center; align-items: center;}
+        .modal-content { background: white; padding: 25px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); max-height: 90vh; display: flex; flex-direction: column;}
     </style>
 </head>
 <body>
@@ -60,15 +83,13 @@
         <!-- 1. 主控型号选择 -->
         <div style="margin-bottom: 20px;">
             <label style="font-size: 13px; font-weight: bold; color: #333; display: block; margin-bottom: 8px;">当前主控型号：</label>
-            <!-- 用 custom-select-display 包裹原生 select，完美解决居中与边框问题 -->
             <div class="custom-select-display" style="padding: 0; position: relative;">
-                <select id="board-select" onchange="switchBoard()" style="width: 100%; height: 40px; padding: 10px 30px 0 10px; border: none; outline: none; background: transparent; font-size: 14px; color: #333; cursor: pointer; appearance: none; -webkit-appearance: none; font-family: inherit;">
+                <select id="board-select" onchange="switchBoard()" style="width: 100%; height: 40px; padding: 0 30px 0 10px; border: none; outline: none; background: transparent; font-size: 14px; color: #333; cursor: pointer; appearance: none; -webkit-appearance: none; font-family: inherit;">
                 </select>
                 <span style="font-size: 10px; color: #888; position: absolute; right: 12px; pointer-events: none;">▼</span>
             </div>
         </div>
 
-        <!-- 隐藏掉之前多余的标题 -->
         <h2 id="board-title" style="display: none;"></h2>
         
         <!-- 2. 外接模组选择 -->
@@ -103,15 +124,17 @@
 
         <div style="height: 1px; background: var(--border); margin: 20px 0;"></div>
         
-        <!-- 5. 导出配置 -->
-        <h2 style="font-size: 15px; margin-top: 0; border-bottom: none; padding-bottom: 0; margin-bottom: 10px;">导出配置</h2>
+        <!-- 5. 导出与适配配置 -->
+        <h2 style="font-size: 15px; margin-top: 0; border-bottom: none; padding-bottom: 0; margin-bottom: 10px;">导出与适配</h2>
         <button onclick="exportConfig()" style="width: 100%; padding: 10px; background: #28a745; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; margin-bottom: 10px;">导出 JSON 配置</button>
-        <button onclick="exportCHeader()" style="width: 100%; padding: 10px; background: #17a2b8; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; margin-bottom: 10px;">生成 C 语言头文件</button>
+        
+        <button onclick="openCodeAdapter()" style="width: 100%; padding: 10px; background: #17a2b8; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; margin-bottom: 10px; font-weight: bold;">⚡ 智能代码适配</button>
+        
         <button onclick="printWiringSheet()" style="width: 100%; padding: 10px; background: #6f42c1; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer;">🖨️ 打印接线单</button>
     </div>
 
     <div class="main-content">
-        <!-- 功耗预算进度条 (单行紧凑版) -->
+        <!-- 功耗预算进度条 -->
         <div class="panel" style="padding: 12px 20px;">
             <div style="display: flex; align-items: center; gap: 15px;">
                 <h2 style="font-size: 14px; margin: 0; border: none; padding: 0; white-space: nowrap; color: #333;">主控供电预算</h2>
@@ -147,9 +170,11 @@
     <!-- 专门用于打印的纯净视图 (平时隐藏) -->
     <div id="print-section" style="display: none;"></div>
 
-    <!-- 协商弹窗 -->
-    <div id="negotiation-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 1000; justify-content: center; align-items: center;">
-        <div style="background: white; padding: 25px; border-radius: 8px; width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+    <!-- ===================== 弹窗区 ===================== -->
+    
+    <!-- 1. 协商弹窗 -->
+    <div id="negotiation-modal" class="modal-overlay">
+        <div style="background: white; padding: 25px; border-radius: 8px; width: 400px;">
             <h3 style="margin-top: 0; color: #dc3545;">⚠️ 引脚资源不足</h3>
             <p style="font-size: 14px; color: #555;" id="negotiation-msg">当前剩余空闲引脚不足以分配完整的模组。</p>
             <div style="background: #f8f9fa; border: 1px solid #ddd; padding: 10px; border-radius: 4px; margin-bottom: 15px;">
@@ -163,9 +188,9 @@
         </div>
     </div>
 
-    <!-- 参数微调弹窗 -->
-    <div id="edit-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 1001; justify-content: center; align-items: center;">
-        <div style="background: white; padding: 25px; border-radius: 8px; width: 350px; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+    <!-- 2. 参数微调弹窗 -->
+    <div id="edit-modal" class="modal-overlay">
+        <div style="background: white; padding: 25px; border-radius: 8px; width: 350px;">
             <h3 style="margin-top: 0; color: #333;">⚙️ 微调参数</h3>
             <div style="margin-bottom: 15px;">
                 <label style="font-size: 13px; font-weight: bold; display: block; margin-bottom: 5px;">预估峰值电流 (mA):</label>
@@ -186,6 +211,67 @@
         </div>
     </div>
 
+    <!-- 3. 智能代码适配弹窗 -->
+    <div id="code-adapter-modal" class="modal-overlay">
+        <div class="modal-content" style="width: 1100px; height: 80vh;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 20px;">
+                <h2 style="margin: 0; font-size: 18px;">⚡ 源码智能替换映射确认</h2>
+                <button onclick="autoMatchAll()" style="background: transparent; color: #6c757d; border: 1px solid #ced4da; padding: 6px 12px; border-radius: 20px; cursor: pointer; font-size: 13px; transition: 0.2s;">✨ 一键恢复智能推荐</button>
+            </div>
+            
+            <!-- 文件上传区 -->
+            <div id="adapter-upload-area" style="text-align: center; padding: 40px; border: 2px dashed #ccc; border-radius: 8px; background: #fafafa; margin-bottom: 20px;">
+                <p style="font-size: 15px; color: #555; margin-bottom: 15px;">请上传你下载的开源项目引脚配置文件（支持 .h / .c / .cpp / .ino / .txt）</p>
+                <input type="file" id="source-file-input" accept=".h,.c,.cpp,.ino,.txt" onchange="handleFileUpload(event)" style="display: none;">
+                <button onclick="document.getElementById('source-file-input').click()" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">📂 选择本地文件</button>
+            </div>
+
+            <!-- 映射表区 (默认隐藏) -->
+            <div id="adapter-mapping-area" style="display: none; flex: 1; overflow-y: auto;">
+                <div class="alert" style="padding: 12px 15px; border-radius: 6px; margin-bottom: 20px; font-size: 13px; line-height: 1.5; background: #e8f5e9; color: #1b5e20; border: 1px solid #c8e6c9;">
+                    💡 系统已自动规划处理状态。<strong>如果对系统的安排不满意，点击任何彩色标签都可以随时强行修改。</strong>
+                </div>
+                <table class="adapter-table">
+                    <thead>
+                        <tr>
+                            <th>源码变量名</th>
+                            <th>源码原值</th>
+                            <th>源码对应模组</th>
+                            <th>你的接线引脚</th>
+                            <th>你的接线模组</th>
+                            <th>处理状态</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mapping-table-body">
+                        <!-- 动态生成 -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- 底部操作区 -->
+            <div style="display: flex; justify-content: flex-end; gap: 15px; margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px;">
+                <button onclick="closeCodeAdapter()" style="padding: 10px 20px; background: #f8f9fa; color: #333; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 14px;">取消</button>
+                <button id="adapter-confirm-btn" onclick="executeReplacement()" disabled style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; opacity: 0.5;">确认处理并生成源码</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. 状态修改小弹窗 (用于修改映射表里的红黄蓝绿) -->
+    <div id="statusModal" class="modal-overlay" style="z-index: 1005;">
+        <div class="modal-content" style="width: 480px;">
+            <h3 style="margin-top: 0; font-size: 16px; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px;">处理设置：<span id="modal-var-name" style="color:#007bff;"></span></h3>
+            
+            <div id="analysis-box" style="background: #f8f9fa; border: 1px solid #eee; padding: 12px; border-radius: 6px; font-size: 13px; margin-bottom: 15px; line-height: 1.6; color: #333;"></div>
+            
+            <div id="options-container"></div>
+            
+            <div style="display:flex; justify-content:flex-end; margin-top:20px; gap:10px;">
+                <button onclick="closeStatusModal()" style="padding: 10px 20px; background: #f8f9fa; color: #333; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 14px;">取消</button>
+                <button onclick="applyStatus()" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">应用</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 数据与逻辑加载 -->
     <script src="data/boards.js"></script>
     <script src="data/modules.js"></script>
@@ -195,5 +281,7 @@
     <script src="js/ui-components.js"></script>
     <script src="js/exporter.js"></script>
     <script src="js/app.js"></script>
+    <!-- 注意：这里已经正式引入了代码适配器逻辑 -->
+    <script src="js/code-adapter.js"></script>
 </body>
 </html>
