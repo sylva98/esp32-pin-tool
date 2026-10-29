@@ -1372,3 +1372,20 @@ pre { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 6px; ov
 .pe-btn--preset:hover { background: #e0efff; }
 .pe-btn--reset { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; }
 .pe-btn--reset:hover { background: #f1f5f9; }
+
+/* ==========================================
+   数据校验提示条（validate.js 发现字典配错时出现）
+   正常情况下不渲染；有错才在画布上方占一条，点标题展开明细
+   ========================================== */
+.dv-bar { position: relative; margin: 8px 12px 0; padding: 8px 34px 8px 12px; border-radius: 8px; border: 1px solid; font-size: 12.5px; }
+.dv-bar--warn { background: #3a2f14; border-color: #8a6d1f; color: #fde68a; }
+.dv-bar--error { background: #3f1d1d; border-color: #9b2c2c; color: #fecaca; }
+.dv-head { display: flex; align-items: baseline; gap: 8px; width: 100%; margin: 0; padding: 0; background: none; border: 0; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.dv-title { font-weight: 700; }
+.dv-sub { font-size: 11.5px; opacity: 0.72; }
+.dv-caret { margin-left: auto; opacity: 0.8; }
+.dv-list { margin: 8px 0 0; padding-left: 18px; max-height: 168px; overflow-y: auto; }
+.dv-item { list-style: disc; line-height: 1.6; }
+.dv-item--error { color: #fca5a5; }
+.dv-close { position: absolute; top: 6px; right: 8px; width: auto; margin: 0; padding: 0 2px; background: none; border: 0; color: inherit; opacity: 0.65; cursor: pointer; font-size: 12px; }
+.dv-close:hover { opacity: 1; }
