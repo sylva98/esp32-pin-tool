@@ -1,0 +1,129 @@
+/* ============================================================
+   板载槽位样式（onboard slots）
+   引入方式：在 index.html 中 <link rel="stylesheet" href="css/style.css"> 之后
+             添加 <link rel="stylesheet" href="css/onboard.css">
+   如欲合并到 style.css，直接把本文件内容粘贴到 style.css 末尾即可。
+   ============================================================ */
+
+/* ---------- 引脚网格：板载状态（深蓝 + 锁图标） ---------- */
+.pin { position: relative; }
+
+.pin.onboard {
+    background: #1e3a8a !important;
+    color: #ffffff !important;
+    border: 1px solid #1e40af !important;
+    cursor: pointer;
+}
+.pin.onboard .io-num {
+    color: #ffffff !important;
+    font-weight: bold;
+}
+.pin.onboard .pin-label {
+    color: #c7d2fe !important;
+    font-size: 9px;
+    line-height: 1.15;
+}
+.pin.onboard::after {
+    content: '🔒';
+    position: absolute;
+    top: 1px;
+    right: 2px;
+    font-size: 9px;
+    opacity: 0.9;
+}
+
+/* ---------- 侧栏板载卡片 ---------- */
+.onboard-slot-card {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-left: 4px solid #1e3a8a;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    font-size: 13px;
+    transition: background 0.3s ease;
+}
+
+.onboard-slot-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+    gap: 6px;
+}
+
+.onboard-slot-title {
+    font-weight: bold;
+    color: #1e3a8a;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.onboard-slot-badge {
+    font-size: 11px;
+    color: #1e3a8a;
+    background: #dbeafe;
+    border-radius: 10px;
+    padding: 1px 6px;
+    white-space: nowrap;
+}
+
+.onboard-slot-expand {
+    font-size: 10px;
+    color: #1e3a8a;
+    transition: transform 0.2s;
+    display: inline-block;
+}
+
+.onboard-slot-card.expanded .onboard-slot-expand {
+    transform: rotate(90deg);
+}
+
+.onboard-slot-meta {
+    margin-top: 4px;
+    font-size: 11px;
+    color: #64748b;
+}
+
+/* ---------- 展开区：引脚明细 ---------- */
+.onboard-slot-pins {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed #bfdbfe;
+    display: none;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 4px 10px;
+    font-size: 12px;
+}
+
+.onboard-slot-card.expanded .onboard-slot-pins {
+    display: grid;
+}
+
+.onboard-slot-pins .pin-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 1px 0;
+}
+
+.onboard-slot-pins .pin-row .sig {
+    color: #64748b;
+}
+
+.onboard-slot-pins .pin-row .num {
+    font-weight: bold;
+    color: #1e3a8a;
+}
+
+/* ---------- 高亮闪烁（点击引脚定位到卡片时） ---------- */
+.onboard-slot-card.highlight {
+    animation: onboardFlash 1s ease;
+}
+
+@keyframes onboardFlash {
+    0%, 100% { background: #eff6ff; }
+    50%      { background: #fef08a; }
+}
