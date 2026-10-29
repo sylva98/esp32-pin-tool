@@ -54,6 +54,30 @@
         runAction(el, event);
     });
 
+    /* Esc 关闭静态弹窗。
+       ui-dialog 里的确认框自己在捕获阶段处理了 Esc/Enter，这里只负责 HTML 里的 .modal-overlay，
+       做法就是「点它自己的关闭键」——不新增关闭逻辑，避免出现两套关闭路径。
+       取层级最高的一层，保证只关最上面那个。 */
+    document.addEventListener('keydown', function (event) {
+        if (event.key !== 'Escape' || event.defaultPrevented) return;
+        const overlays = Array.prototype.filter.call(
+            document.querySelectorAll('.modal-overlay'),
+            function (m) {
+                const st = window.getComputedStyle(m);
+                return st.display !== 'none' && st.visibility !== 'hidden';
+            }
+        );
+        if (!overlays.length) return;
+        overlays.sort(function (a, b) {
+            return (Number(window.getComputedStyle(a).zIndex) || 0) - (Number(window.getComputedStyle(b).zIndex) || 0);
+        });
+        const top = overlays[overlays.length - 1];
+        const btn = top.querySelector('.modal-close-btn') || top.querySelector('.btn-cancel');
+        if (!btn) return;
+        event.preventDefault();
+        btn.click();
+    });
+
     /* 通用小动作：给不想到处写函数的地方用 */
     function clickById(id) {
         const node = document.getElementById(id);
