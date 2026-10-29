@@ -1,12 +1,84 @@
 {
   "ESP32-S3-WROOM-1 N16R8": {
     "max_pin": 48,
-    "internal_used": [35, 36, 37],
+    "internal_used": [
+      35,
+      36,
+      37
+    ],
     "internal_used_reason": "内部 Octal PSRAM 占用",
-    "strapping": [0, 3, 45, 46],
+    "strapping": [
+      0,
+      3,
+      45,
+      46
+    ],
     "strapping_reason": "启动时决定电压/启动模式，极易导致无法开机",
-    "usb_pins": [19, 20],
-    "default_i2c": [8, 9],
-    "default_spi": [10, 11, 12, 13]
+    "usb_pins": [
+      19,
+      20
+    ],
+    "default_i2c": [
+      8,
+      9
+    ],
+    "default_spi": [
+      10,
+      11,
+      12,
+      13
+    ],
+    "uart_pins": [
+      43,
+      44
+    ]
+  },
+  "ESP32-S3 N16R8 CAM": {
+    "max_pin": 48,
+    "internal_used": [
+      35,
+      36,
+      37,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      15,
+      16,
+      17,
+      18
+    ],
+    "internal_used_reason": "内部 Octal PSRAM + 板载摄像头排线直连占用",
+    "strapping": [
+      0,
+      3,
+      45,
+      46
+    ],
+    "strapping_reason": "启动时决定电压/启动模式，极易导致无法开机",
+    "usb_pins": [
+      19,
+      20
+    ],
+    "default_i2c": [
+      42,
+      41
+    ],
+    "default_spi": [
+      10,
+      11,
+      12,
+      13
+    ],
+    "uart_pins": [
+      43,
+      44
+    ]
   }
 }
