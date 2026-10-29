@@ -100,6 +100,21 @@ function smartIfaceKey(iface) {
     return String(iface).includes('I2S') ? 'I2S' : String(iface);
 }
 
+/* 总线命名空间：I2C/SPI 多设备可以共用一组信号；I2S 要看板子接法。
+   单工（I2S_IN 与 I2S_OUT 默认脚不同，如虾哥 bread 系列 mic 4/5/6、spk 7/15/16）：
+   两块设备各走一条总线，功放绝不能复用麦克风的 BCLK/LRC —— 官方固件里它们是分开的。
+   双工（两套默认脚相同）：才是真共用一套时钟。 */
+function smartBusKey(modData) {
+    const iface = String((modData && modData.interface) || '');
+    if (iface.includes('I2S')) {
+        const di = (boardConfig.defaultInterfaces || {}).I2S_IN || {};
+        const dout = (boardConfig.defaultInterfaces || {}).I2S_OUT || {};
+        const sameDefaults = di.BCLK !== undefined && di.BCLK === dout.BCLK && di.LRC === dout.LRC;
+        if (!sameDefaults) return iface;
+    }
+    return smartIfaceKey(iface);
+}
+
 /* 排针物理位置：左列 idx 0 起，右列 idx 0 起；用于估算飞线长度 */
 function smartPinGeo() {
     const geo = {};
@@ -240,6 +255,7 @@ function smartSortReqs(modData) {
 
 function planModuleOnSide(modData, modIndex, side, baseUsed, baseBus, strategy, geo, pins, spec, reqs, seedPins, claims, ownerIfaces, wifiActive, avoidSet) {
     const iface = smartIfaceKey(modData.interface);
+    const busKey = smartBusKey(modData);
     const ctx = {
         modIndex: modIndex, side: side, weights: strategy.weights, geo: geo, spec: spec,
         modData: modData, claims: claims || {}, ownerIfaces: ownerIfaces || [], wifiActive: !!wifiActive, avoid: avoidSet || null,
@@ -259,8 +275,8 @@ function planModuleOnSide(modData, modIndex, side, baseUsed, baseBus, strategy, 
         const picked = [];
 
         // 总线复用：I2C 多设备 / SPI 共用 SCK·MOSI / I2S 共用 BCLK·LRC
-        if (count === 1 && SMART_BUS_SIGNALS.has(sig) && ctx.bus[iface] && ctx.bus[iface][sig] !== undefined) {
-            const shared = Number(ctx.bus[iface][sig]);
+        if (count === 1 && SMART_BUS_SIGNALS.has(sig) && ctx.bus[busKey] && ctx.bus[busKey][sig] !== undefined) {
+            const shared = Number(ctx.bus[busKey][sig]);
             const owner = ctx.used[shared];
             // 已被上一块设备当同一条总线信号占用 → 并联合法；被其它信号占用才算冲突
             const shareable = !owner || (owner.signal === sig && SMART_BUS_SIGNALS.has(sig));
@@ -294,8 +310,8 @@ function planModuleOnSide(modData, modIndex, side, baseUsed, baseBus, strategy, 
         });
         ctx.chosen.push(...picked);
         if (count === 1 && SMART_BUS_SIGNALS.has(sig)) {
-            if (!ctx.bus[iface]) ctx.bus[iface] = {};
-            ctx.bus[iface][sig] = picked[0];
+            if (!ctx.bus[busKey]) ctx.bus[busKey] = {};
+            ctx.bus[busKey][sig] = picked[0];
         }
     }
 
@@ -738,7 +754,10 @@ function toggleSmartPanel(force) {
         Object.values(m.connections || {}).some(v => v && v !== 'dropped'));
     _smartAppliedKey = detectCurrentSchemeKey();
     renderSmartPanel();
-    if (!hasWiring && _smartSchemes.length && _smartSchemes[0].missingTotal === 0) {
+    // 画布上还一根线都没有时，直接给出推荐方案，省掉一次点击。
+    // 但这套方案必须是真的 0 冲突：以前只判缺线，带冲突的方案也会被默默铺上去，
+    // 用户照着接完才发现喇叭没声。
+    if (!hasWiring && _smartSchemes.length && _smartSchemes[0].missingTotal === 0 && !_smartSchemes[0].errors.length) {
         applySmartScheme(0, true);
     }
 }

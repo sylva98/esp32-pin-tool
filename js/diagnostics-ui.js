@@ -19,19 +19,25 @@ let _diagLastErrors = 0;
 let _diagViewBackup = null;   // 打开面板前的画布视图
 let _diagFitView = null;      // 打开面板后自适应出来的视图（用于判断用户有没有手动调过）
 
-/* 当前画布上的接线摊平成诊断引擎需要的结构：{ pin, module, signal } */
+/* 当前画布上的接线摊平成诊断引擎需要的结构
+   { pin, module, signal } 是基础三件套；额外带上 modId / modKey / iface，
+   因为「同型号 I2C 撞地址」「5V 模组信号」这类规则要按模组判断，不能只看引脚。 */
 function buildDiagConnections() {
     const conns = [];
     if (typeof activeModules === 'undefined' || !activeModules) return conns;
     const lib = (typeof moduleLibrary !== 'undefined' && moduleLibrary) ? moduleLibrary : {};
-    activeModules.forEach(mod => {
+    activeModules.forEach((mod, idx) => {
         const modData = lib[mod.id];
         const modName = (modData && modData.name) ? modData.name : (mod.name || '未知模组');
         Object.entries(mod.connections || {}).forEach(([signal, pinStr]) => {
             if (pinStr === 'dropped' || pinStr === undefined || pinStr === null) return;
             String(pinStr).split(',').forEach(p => {
                 const n = Number(String(p).trim());
-                if (!Number.isNaN(n)) conns.push({ pin: n, module: modName, signal });
+                if (!Number.isNaN(n)) conns.push({
+                    pin: n, module: modName, signal,
+                    modId: mod.id, modKey: `${mod.id}#${idx}`,
+                    iface: (modData && modData.interface) || mod.interface || ''
+                });
             });
         });
     });
@@ -208,10 +214,14 @@ function diagEmptyHtml(icon, title, sub) {
 
 function diagItemHtml(item, level) {
     const hasPin = item.pin !== undefined && item.pin !== null && !Number.isNaN(Number(item.pin));
-    const badge = hasPin ? `GPIO ${Number(item.pin)}` : (item.signal ? escapeDiagHtml(item.signal) : '—');
-    const msg = hasPin ? (item.message || '') : `【${item.module}】${item.signal} 未接线（已放弃）`;
+    // 没有引脚但有 message 的是一条「全局结论」（总电流超预算、本板没有 5V 输出），
+    // 不能套用「未接线（已放弃）」那句 gap 专用文案
+    const isGlobal = !hasPin && !!item.message;
+    const badge = hasPin ? `GPIO ${Number(item.pin)}`
+        : (item.signal ? escapeDiagHtml(item.signal) : (isGlobal ? '整板' : '—'));
+    const msg = hasPin || isGlobal ? (item.message || '') : `【${item.module}】${item.signal} 未接线（已放弃）`;
     // 第二行小字只放「怎么做」，原理一律塞进 hover title，避免一次刷出上百字
-    const hint = hasPin ? (item.hint || '') : '';
+    const hint = hasPin || isGlobal ? (item.hint || '') : '';
     const actAttr = hasPin ? ` data-act="focusDiagnosticPin" data-arg="${Number(item.pin)}"` : '';
     const go = hasPin ? '<span class="diag-item-go">定位</span>' : '';
     const tip = item.tip ? ` title="${escapeDiagHtml(item.tip)}"` : '';

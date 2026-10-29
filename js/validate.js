@@ -17,6 +17,19 @@
 
     console.log("%c🔍 正在执行硬件配置数据校验...", "color: #17a2b8; font-weight: bold; font-size: 14px;");
 
+    // 校验结果以前只躺在 Console 里 —— 用户永远看不见，配错模组 id 也照样用。
+    // 这里在校验期间顺手收一份，跑完在画布上方给一条可展开的提示条。
+    const _consoleErr = console.error, _consoleWarn = console.warn;
+    const issues = [];
+    console.error = function () {
+        issues.push({ level: 'error', text: Array.prototype.slice.call(arguments).join(' ') });
+        _consoleErr.apply(console, arguments);
+    };
+    console.warn = function () {
+        issues.push({ level: 'warn', text: Array.prototype.slice.call(arguments).join(' ') });
+        _consoleWarn.apply(console, arguments);
+    };
+
     // ==========================================
     // 1. 校验板子数据 (boards.js)
     // ==========================================
@@ -147,9 +160,56 @@
     // ==========================================
     // 3. 输出最终报告
     // ==========================================
+    console.error = _consoleErr;
+    console.warn = _consoleWarn;
+    window.__dataValidationIssues = issues;
+    renderDataValidationBar(issues);
+
     if (errorCount === 0 && warnCount === 0) {
         console.log("%c✅ 数据字典校验通过！所有板载槽位、引脚映射、模组依赖均合法。", "color: #28a745; font-weight: bold; font-size: 13px;");
     } else {
         console.log(`%c⚠️ 数据字典校验完成：发现 ${errorCount} 个严重错误，${warnCount} 个警告。请根据上方提示排查修正。`, "color: #ffc107; font-weight: bold; font-size: 13px;");
     }
 })();
+
+/* 数据校验提示条：主板/模组字典配错时，画布上方出现一条可展开的条，
+   而不是让人去翻 Console。只在真有问题时才建，正常启动不长这样一条东西。 */
+function renderDataValidationBar(issues) {
+    const host = document.querySelector('.main-content');
+    if (!host) return;
+    const old = document.getElementById('data-validate-bar');
+    if (old) old.remove();
+    if (!issues || !issues.length) return;
+
+    const errN = issues.filter(i => i.level === 'error').length;
+    const clean = t => String(t).replace(/^\s*[❌⚠️]\s*\[Validate\]\s*/, '').replace(/\s+/g, ' ').trim();
+    const bar = document.createElement('div');
+    bar.id = 'data-validate-bar';
+    bar.className = 'dv-bar ' + (errN ? 'dv-bar--error' : 'dv-bar--warn');
+    bar.innerHTML = `
+        <button type="button" class="dv-head" onclick="toggleDataValidateBar(this)">
+            <span class="dv-title">${errN ? '数据校验发现 ' + errN + ' 处配置错误' : '数据校验有 ' + issues.length + ' 条提示'}</span>
+            <span class="dv-sub">展开看是哪个模组/主板配错了</span>
+            <span class="dv-caret">▾</span>
+        </button>
+        <ul class="dv-list" style="display:none">${issues.map(i => `<li class="dv-item dv-item--${i.level}">${escapeHtml(clean(i.text))}</li>`).join('')}</ul>
+        <button type="button" class="dv-close" onclick="closeDataValidateBar()" title="本次会话不再显示">✕</button>`;
+
+    const canvas = document.getElementById('wiring-canvas-area');
+    if (canvas) host.insertBefore(bar, canvas); else host.appendChild(bar);
+}
+
+function toggleDataValidateBar(btn) {
+    const bar = btn && btn.closest('.dv-bar');
+    if (!bar) return;
+    const list = bar.querySelector('.dv-list');
+    const caret = bar.querySelector('.dv-caret');
+    const open = list.style.display !== 'none';
+    list.style.display = open ? 'none' : 'block';
+    if (caret) caret.textContent = open ? '▾' : '▴';
+}
+
+function closeDataValidateBar() {
+    const bar = document.getElementById('data-validate-bar');
+    if (bar) bar.remove();
+}

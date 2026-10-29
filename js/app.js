@@ -96,7 +96,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         boardSelect.value = defaultBoardKey;
-        loadBoard(defaultBoardKey);
+        // 优先恢复上次的方案；没存过（或存档已失效）才给空画布
+        if (!restoreWiringState()) loadBoard(defaultBoardKey);
         
     } catch (error) {
         console.error(error);
@@ -280,7 +281,7 @@ function loadBoard(boardKey) {
     renderBoardFwHint(boardConfig);
     
     activeModules = []; 
-    activeBuses = { I2C: {}, SPI: {}, I2S: {}, UART: {} };
+    activeBuses = { I2C: {}, SPI: {}, I2S: {}, I2S_IN: {}, I2S_OUT: {}, UART: {} };
     cartSelectedModules = []; 
     window.currentUploadedSource = null; 
     window.hasReplacedSource = false; 
@@ -328,6 +329,120 @@ async function switchBoard() {
         }
     }
     loadBoard(document.getElementById('board-select').value);
+}
+
+/* ==========================================
+ * 1.2 接线方案持久化
+ * 刷新页面不丢方案：主板 + 模组 + 每根线的落点 + 勾选状态 + 源码宏映射。
+ * 只存「能重建画布的最小事实」，不存 pinsState/activeBuses —— 那些由 rebuildPinState 推出来，
+ * 存了反而会和板数据打架。存储带版本号：格式一变就整条丢弃，不做迁移（旧数据只会误导）。
+ * ========================================== */
+const WIRING_STATE_KEY = 'esp32_wiring_state_v1';
+let _restoringWiring = false;
+let _persistWiringTimer = null;
+
+function wiringStateSnapshot() {
+    const srcMeta = (typeof window._sourceMeta !== 'undefined') ? window._sourceMeta : null;
+    const mapping = (typeof currentMappingData !== 'undefined' && currentMappingData) ? currentMappingData : [];
+    return {
+        v: 1,
+        board: boardConfig ? boardConfig.boardName : '',
+        savedAt: Date.now(),
+        modules: (activeModules || []).map(m => ({
+            id: m.id,
+            name: m.name || '',
+            interface: m.interface || '',
+            isOnboard: !!m.isOnboard,
+            slotId: m.slotId || null,
+            connections: Object.assign({}, m.connections || {}),
+            overrides: Object.assign({}, m.overrides || {}),
+            enabledPins: Object.assign({}, m.enabledPins || {})
+        })),
+        source: (srcMeta || mapping.length)
+            ? {
+                meta: srcMeta || null,
+                mapping: mapping,
+                project: (typeof currentProjectName !== 'undefined') ? currentProjectName : ''
+            }
+            : null
+    };
+}
+
+function persistWiringState(immediate) {
+    if (_restoringWiring) return;
+    const write = () => {
+        try {
+            // 画布被清空 → 连存档一起删掉，否则下次刷新又"复活"一套用户已经放弃的接法
+            if (!activeModules.length) { localStorage.removeItem(WIRING_STATE_KEY); return; }
+            localStorage.setItem(WIRING_STATE_KEY, JSON.stringify(wiringStateSnapshot()));
+        } catch (e) {
+            console.warn('[持久化] 保存接线失败（可能是存储配额已满）', e);
+        }
+    };
+    clearTimeout(_persistWiringTimer);
+    if (immediate) write();
+    else _persistWiringTimer = setTimeout(write, 400);
+}
+
+function restoreWiringState() {
+    const st = readLocalJSON(WIRING_STATE_KEY, null);
+    // 主板被删/改名、格式对不上 → 静默按空画布启动，不要拿半套数据把画布画歪
+    if (!st || st.v !== 1 || !st.board || !globalBoards[st.board]) return false;
+
+    _restoringWiring = true;
+    try {
+        loadBoard(st.board);
+
+        let restored = 0;
+        (st.modules || []).forEach(sm => {
+            if (!sm || !sm.id || !moduleLibrary[sm.id]) return;
+            const md = moduleLibrary[sm.id];
+            const conns = {};
+            Object.entries(sm.connections || {}).forEach(([sig, val]) => {
+                if (!val || val === 'dropped') { conns[sig] = val; return; }
+                // 板数据升级后某根脚可能已经不存在，留着会让画布画到虚空里。
+                // 一根没丢就原样保留（连类型一起），否则拼回字符串 —— 别让 5 变成 "5"
+                const parts = String(val).split(',').map(p => p.trim());
+                const alive = parts.filter(p => pinsState[Number(p)]);
+                if (!alive.length) return;
+                conns[sig] = alive.length === parts.length ? val : alive.join(',');
+            });
+            activeModules.push({
+                id: sm.id,
+                name: md.name || sm.name,
+                interface: md.interface || sm.interface,
+                connections: conns,
+                overrides: Object.assign({}, sm.overrides || {}),
+                enabledPins: Object.assign({}, sm.enabledPins || {}),
+                isOnboard: !!sm.isOnboard,
+                slotId: sm.slotId || undefined
+            });
+            restored++;
+        });
+
+        if (!restored) return false;
+        rebuildPinState();
+        renderPins();
+        renderModules();
+        updatePowerBudget();
+        if (typeof refreshSmartPanelIfStale === 'function') refreshSmartPanelIfStale();
+        // 源码宏映射要留着：「生成代码骨架」靠它继续按源码原宏名出片；
+        // 但不去还原解析结果卡片（那是上一次操作的中间态，弹出来只会让人以为刚解析过）
+        if (st.source) {
+            window._sourceMeta = st.source.meta || null;
+            currentMappingData = Array.isArray(st.source.mapping) ? st.source.mapping : [];
+            if (typeof currentProjectName !== 'undefined' && st.source.project) currentProjectName = st.source.project;
+        }
+        if (typeof uiToast === 'function') {
+            uiToast(`已恢复上次接线（${restored} 个模组）`, { type: 'info', duration: 2600 });
+        }
+        return true;
+    } catch (e) {
+        console.warn('[持久化] 恢复接线失败，已按空画布启动', e);
+        return false;
+    } finally {
+        _restoringWiring = false;
+    }
 }
 
 // ==========================================
@@ -431,6 +546,9 @@ function renderPins() {
             grid.appendChild(div);
         }
         if (typeof refreshWiringCanvas === 'function') { try { refreshWiringCanvas(); } catch (e2) { console.error("画布刷新失败", e2); } }
+        // renderPins 是「接线发生了实质变化」的汇聚点（加模组/删模组/换方案/勾引脚都会走到这），
+        // 顺手存一份，刷新页面不至于从头再点一遍。防抖 400ms 避免拖线时狂写 localStorage
+        if (typeof persistWiringState === 'function') persistWiringState();
     } catch (e) {
         console.error("渲染引脚时发生致命错误:", e);
     }
@@ -853,6 +971,9 @@ function renderPinEditList() {
     });
     (pool.signals || []).forEach(s => {
         if (sigItems.has(s) || takenNames.has(String(s).toUpperCase())) return;
+        // NC/N.C. 的语义是「这颗脚悬空不接」，给它分配 GPIO 没有意义；
+        // 实物真有多余的脚，走下面的「自定义引线」输入即可
+        if (/^N\.?C\.?$/i.test(String(s))) return;
         sigItems.set(s, { required: false, defined: false, custom: false });
     });
     (mod.customPins || []).forEach(c => { if (!sigItems.has(c)) sigItems.set(c, { required: false, defined: false, custom: true }); });
@@ -1124,7 +1245,7 @@ function normalizeIfaceKey(iface) {
 
 function rebuildPinState() {
     initPins();
-    activeBuses = { I2C: {}, SPI: {}, I2S: {}, UART: {} };
+    activeBuses = { I2C: {}, SPI: {}, I2S: {}, I2S_IN: {}, I2S_OUT: {}, UART: {} };
     activeModules.forEach(mod => {
         const iface = normalizeIfaceKey(mod.interface);
         Object.entries(mod.connections || {}).forEach(([signal, pinStr]) => {
@@ -1407,13 +1528,16 @@ function updatePowerBudget() {
     }
     
     const maxCurrent = (typeof boardConfig !== 'undefined' && boardConfig.max_current_ma) ? boardConfig.max_current_ma : 500;
-    const percent = Math.min(100, Math.round((totalCurrent / maxCurrent) * 100));
+    // 条形宽度最多 100%，但文字必须显示真实百分比：130% 被截成 100% 的话，超载看起来和「刚好满载」一样
+    const rawPercent = Math.round((totalCurrent / maxCurrent) * 100);
+    const percent = Math.min(100, rawPercent);
     const powerBar = document.getElementById('power-bar'); const powerText = document.getElementById('power-text');
     
     if (powerBar && powerText) {
         powerBar.style.width = `${percent}%`;
-        powerText.innerText = `${totalCurrent} mA / ${maxCurrent} mA (${percent}%)`;
-        if (percent >= 90) { powerBar.style.background = '#dc3545'; powerText.style.color = '#dc3545'; } 
+        powerText.innerText = `${totalCurrent} mA / ${maxCurrent} mA (${rawPercent}%)`;
+        if (rawPercent > 100) { powerBar.style.background = '#dc3545'; powerText.style.color = '#dc3545'; }
+        else if (percent >= 90) { powerBar.style.background = '#dc3545'; powerText.style.color = '#dc3545'; } 
         else if (percent >= 70) { powerBar.style.background = '#ffc107'; powerText.style.color = '#d39e00'; } 
         else { powerBar.style.background = '#28a745'; powerText.style.color = '#28a745'; }
     }

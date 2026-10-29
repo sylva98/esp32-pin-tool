@@ -1,7 +1,9 @@
 /* =========================================================
- * 诊断知识库：与 data/diagnostics_rules.json 保持一致
+ * 诊断知识库
  * 每个主板必须在这里登记，否则 runHardwareDiagnostics 会直接返回“未知主控”，
  * 引脚冲突/strapping/USB 占用等诊断会全部静默失效。
+ * 注意：data/diagnostics_rules.json 曾经是这份表的镜像，但代码从未加载它，
+ * 两份定义已经漂移，现已删除（只保留本文件这一份唯一来源）。
  * ========================================================= */
 let ruleKnowledgeBase = {
     "ESP32-S3-WROOM-1 N16R8": {
@@ -97,13 +99,40 @@ function checkPinConflict(connections) {
     return errors;
 }
 
+/* W1 启动脚
+   以前不分脚位一律写「接了可能开不了机 / 换个脚最稳」，可虾哥官方接法本来就把屏 RES 接在 45、
+   BOOT 按键接在 0 —— 照着官方接反而被劝退。现在按每根脚的真实后果（impact/note）说话：
+   none=本板不影响、download=按住才进下载模式、boot=确实影响启动。 */
 function checkStrapping(connections, boardSpec) {
-    return connections.filter(c => boardSpec.strapping.includes(c.pin)).map(c => ({
-        level: 'WARNING', code: 'W1', pin: c.pin,
-        message: '启动脚，接了可能开不了机',
-        hint: '换个脚最稳',
-        tip: `GPIO ${c.pin} 是 Strapping 引脚，芯片启动瞬间会读它的电平决定启动模式/电压。接入 ${c.module} 后若上电时被拉低，可能直接进下载模式或起不来。`
-    }));
+    const strapCfg = (typeof boardConfig !== 'undefined' && boardConfig && boardConfig.strappingPins) || {};
+    return connections.filter(c => boardSpec.strapping.includes(c.pin)).map(c => {
+        const cfg = strapCfg[c.pin] || {};
+        const impact = cfg.impact || 'boot';
+        const base = { level: 'WARNING', code: 'W1', pin: c.pin };
+        if (impact === 'none') {
+            return Object.assign(base, {
+                message: '启动脚，本板不受影响',
+                hint: '照源码接就行',
+                tip: `GPIO ${c.pin}：${cfg.note || '这块模组的启动电平不影响芯片正常启动'}。`
+                    + `能接，只是别拿它当“随便换的普通脚”——换到 1.8V flash 的板子上就要重新评估。`
+            });
+        }
+        if (impact === 'download') {
+            return Object.assign(base, {
+                message: '上电时按住会进下载模式',
+                hint: '松手再上电',
+                tip: `GPIO ${c.pin} 是 BOOT 脚：上电瞬间为低会进下载模式（这正是烧录要的效果），`
+                    + `松开再上电就正常启动。${cfg.note ? ' ' + cfg.note : ''}`
+            });
+        }
+        return Object.assign(base, {
+            message: '启动脚，接了可能开不了机',
+            hint: '换个脚最稳',
+            tip: `GPIO ${c.pin} 是 Strapping 引脚，芯片启动瞬间会读它的电平（${cfg.reason || '启动配置'}）。`
+                + `接入 ${c.module} 后若上电时电平不对，可能直接进下载模式或起不来。`
+                + (cfg.note ? ` ${cfg.note}` : '')
+        });
+    });
 }
 
 /* 19/20 是 ESP32-S3 的原生 USB（D-/D+，即 USB-Serial-JTAG）。
@@ -181,6 +210,156 @@ function checkBacklightGpio(connections, boardSpec) {
     }));
 }
 
+/* E4 I2C 地址冲突
+   同型号 I2C 模组挂同一条总线时，默认从机地址一模一样（AHT20=0x38、MPU6050=0x68、SSD1306=0x3C），
+   两块一起接 = 同时应答、总线挂死，表现为「接线全对但读不出数据」。
+   这是最难自查的一类故障，之前完全没有规则覆盖。 */
+function checkI2cAddressConflict(connections) {
+    const seen = new Map();          // modId#实例 → { name, pin }
+    const dup = [];
+    connections.forEach(c => {
+        if (String(c.iface || '').toUpperCase() !== 'I2C') return;
+        const key = c.modKey || c.module;
+        if (!seen.has(key)) seen.set(key, { name: c.module, pin: c.signal === 'SDA' ? c.pin : null });
+    });
+    const byMod = new Map();
+    seen.forEach((v, key) => {
+        const modId = String(key).split('#')[0];
+        byMod.set(modId, (byMod.get(modId) || []).concat([v]));
+    });
+    byMod.forEach(group => {
+        if (group.length < 2) return;
+        dup.push({
+            level: 'ERROR', code: 'E4', pin: group[0].pin,
+            message: '同型号 I2C 撞地址',
+            hint: '只留一块，或改地址脚',
+            tip: `画布上有 ${group.length} 块【${group[0].name}】。同型号 I2C 模组的默认从机地址相同，`
+                + `挂同一条总线会同时应答，总线直接挂死（现象是接线全对却读不出数据）。`
+                + `解决办法：只留一块；或把其中一块的 ADDR/A0 地址脚改接 GND/VCC 换成另一个地址（前提是这块板支持）。`
+        });
+    });
+    return dup;
+}
+
+/* W6 启动电平冲突
+   芯片启动瞬间会读 strapping 脚的电平决定启动模式/电压。engine 的分配器已经用
+   `default_state 与 required_level 必须一致` 做过滤，但**手动拖线会绕过它**，
+   于是可能出现「CS 默认高电平被接到需要低电平的启动脚」——上电就进不了系统。
+   这里把 engine 的过滤规则同样暴露到诊断，保证两条路径口径一致。 */
+function checkStrappingLevel(connections, boardName) {
+    const boards = (typeof globalBoards !== 'undefined') ? globalBoards : null;
+    if (!boards) return [];
+    const board = Object.values(boards).find(b => b && b.boardName === boardName);
+    const strap = board && board.strappingPins;
+    if (!strap) return [];
+    const lib = (typeof moduleLibrary !== 'undefined' && moduleLibrary) ? moduleLibrary : {};
+    const out = [];
+    connections.forEach(c => {
+        const info = strap[c.pin];
+        if (!info || !info.required_level) return;
+        const modData = lib[c.modId];
+        const req = modData && (modData.requirements || []).find(r => r.signal === c.signal);
+        if (!req || !req.default_state) return;
+        if (String(req.default_state).toUpperCase() === String(info.required_level).toUpperCase()) return;
+        out.push({
+            level: 'WARNING', code: 'W6', pin: c.pin,
+            message: '启动电平对不上，可能开不了机',
+            hint: '换一根脚最稳',
+            tip: `GPIO ${c.pin} 是 strapping 脚，芯片启动时要求 ${info.required_level} 电平（${info.reason}）；`
+                + `而【${c.module}】的 ${c.signal} 默认是 ${req.default_state} 电平。`
+                + `上电瞬间这个脚被拉到相反电平，芯片可能直接进下载模式或反复重启。`
+                + `自动分配会自动避开这种组合，这根线应该是手动拖上去的 —— 换一根普通 GPIO 即可。`
+        });
+    });
+    return out;
+}
+
+/* W7 供电超预算
+   侧栏那条进度条只在超过 90% 时变红，没有「到底超了多少」的文字结论，
+   而诊断面板只报引脚问题。把预算做成一条正式规则，才能出现在自检列表里。 */
+function checkPowerBudget() {
+    if (typeof activeModules === 'undefined' || !activeModules || !boardConfig) return [];
+    const lib = (typeof moduleLibrary !== 'undefined' && moduleLibrary) ? moduleLibrary : {};
+    let total = 0;
+    activeModules.forEach(mod => {
+        const md = lib[mod.id];
+        if (!md) return;
+        const pure5v = (md.power_pins || []).some(p => p.connect_to === '5V')
+            && !(md.power_pins || []).some(p => p.connect_to === '3.3V');
+        if (pure5v) return;                                  // 外部 5V 供电，不计入板载 3.3V 预算
+        total += (mod.overrides && mod.overrides.current !== undefined) ? Number(mod.overrides.current) : (md.peak_current_ma || 0);
+    });
+    const max = boardConfig.max_current_ma || 500;
+    if (total <= max) return [];
+    return [{
+        level: 'WARNING', code: 'W7',
+        message: `总电流 ${total}mA 超出 ${max}mA`,
+        hint: '加外部供电，或去掉模组',
+        tip: `当前外接模组峰值合计 ${total}mA，超过本板标注的 ${max}mA。`
+            + `峰值同时出现（屏幕全亮 + 喇叭最大声 + 舵机启动）时会拉低 3.3V，表现为随机重启或 WiFi 掉线。`
+            + `做法：给大电流模组（屏幕背光、功放、舵机）单独供电并与主板共地，或者减掉一个模组。`
+    }];
+}
+
+/* W8 本板没有 5V 输出
+   WROOM 裸板的 5V 只存在于 USB 输入侧，排针上并没有 5V 输出；
+   接 5V 模组（舵机 / 继电器 / 4G）必须自己拉外部 5V 并共地。 */
+function checkFiveVoltSupply(boardName) {
+    const boards = (typeof globalBoards !== 'undefined') ? globalBoards : null;
+    if (!boards || typeof activeModules === 'undefined' || !activeModules) return [];
+    const board = Object.values(boards).find(b => b && b.boardName === boardName);
+    if (!board || !board.power_rails || board.power_rails['5V'] !== false) return [];
+    const lib = (typeof moduleLibrary !== 'undefined' && moduleLibrary) ? moduleLibrary : {};
+    const out = [];
+    activeModules.forEach(mod => {
+        const md = lib[mod.id];
+        if (!md) return;
+        if (!(md.power_pins || []).some(p => p.connect_to === '5V')) return;
+        if (out.some(x => x.module === md.name)) return;
+        out.push({
+            level: 'WARNING', code: 'W8',
+            message: '本板没有 5V 输出',
+            hint: '要外接 5V 电源并共地',
+            tip: `【${md.name}】需要 5V 供电，但本主控的排针上没有 5V 输出（5V 只在 USB 输入侧）。`
+                + `必须用外部 5V 电源给它供电，并把外部电源的 GND 与主板 GND 连在一起，否则信号没有共同参考点。`
+                + `只把信号线接到 GPIO、电源不接，模块不会工作。`
+        });
+    });
+    return out;
+}
+
+/* W9 模组标称信号电压高于主控安全电压
+   内置模组全是 3.3V，这条只会打中「用户自建/导入的 5V 模组」。
+   注意：字段表达的是模组设计电压，不代表它一定输出 5V 高电平（很多 5V 模组的信号是 3.3V 兼容输入），
+   所以给「警告 + 自己确认」，不报红。 */
+function checkVoltageMismatch(connections, boardName) {
+    const boards = (typeof globalBoards !== 'undefined') ? globalBoards : null;
+    if (!boards) return [];
+    const board = Object.values(boards).find(b => b && b.boardName === boardName);
+    if (!board || !board.safe_voltage) return [];
+    const lib = (typeof moduleLibrary !== 'undefined' && moduleLibrary) ? moduleLibrary : {};
+    const out = [];
+    const seen = new Set();
+    connections.forEach(c => {
+        const md = lib[c.modId];
+        if (!md) return;
+        const v = Number(md.signal_voltage || 3.3);
+        if (!(v > Number(board.safe_voltage))) return;
+        if (seen.has(c.modId)) return;
+        seen.add(c.modId);
+        out.push({
+            level: 'WARNING', code: 'W9', pin: c.pin,
+            message: `${v}V 模组信号，确认电平`,
+            hint: '不确定就加电平转换',
+            tip: `【${c.module}】按 ${v}V 信号设计，而本主控 GPIO 的安全电压是 ${board.safe_voltage}V。`
+                + `很多 5V 模组的信号脚其实是「3.3V 也能识别的输入」，可以直接接；`
+                + `但如果它的信号是模组自己输出的（传感器 OUT/AOUT 之类），高电平可能接近 ${v}V，`
+                + `直连会打穿 GPIO。拿不准就在信号线上加电平转换模块或分压电阻。`
+        });
+    });
+    return out;
+}
+
 /* 容错匹配：主板数据里的 boardName 常带后缀说明（如 "ESP32-C3 (RISC-V)"），
    精确匹配失败时回退到最长包含匹配，避免新增主板后诊断静默失效 */
 function resolveBoardSpec(boardName) {
@@ -209,6 +388,12 @@ function runHardwareDiagnostics(connections, boardName) {
     report.warnings.push(...checkUartPins(connections, boardSpec));
     report.warnings.push(...checkSpiRouting(connections, boardName));
     report.warnings.push(...checkBacklightGpio(connections, boardSpec));
+    // 数据/供电层面（这些不需要引脚也能成立，pin 为空时面板只显示文字）
+    report.errors.push(...checkI2cAddressConflict(connections));
+    report.warnings.push(...checkStrappingLevel(connections, boardName));
+    report.warnings.push(...checkVoltageMismatch(connections, boardName));
+    report.warnings.push(...checkFiveVoltSupply(boardName));
+    report.warnings.push(...checkPowerBudget());
     // 同一根脚可能被多个模组共享（如 I2S 时钟），同类同脚提示只保留一条
     const dedupe = (list) => {
         const seen = new Set();

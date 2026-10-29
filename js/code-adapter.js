@@ -57,7 +57,17 @@ const DB_NAME = 'ESP32ToolCacheDB'; const STORE_NAME = 'source_zips';
 function initCacheDB() { return new Promise((resolve, reject) => { const request = indexedDB.open(DB_NAME, 1); request.onupgradeneeded = (e) => { const db = e.target.result; if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME, { keyPath: 'id' }); }; request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); }
 async function getCachedData(id) { try { const db = await initCacheDB(); return new Promise((resolve, reject) => { const tx = db.transaction(STORE_NAME, 'readonly'); const req = tx.objectStore(STORE_NAME).get(id); req.onsuccess = () => resolve(req.result || null); req.onerror = () => resolve(null); }); } catch (e) { return null; } }
 async function saveZipToCache(id, blob, commitSha) { try { const db = await initCacheDB(); return new Promise((resolve, reject) => { const tx = db.transaction(STORE_NAME, 'readwrite'); tx.objectStore(STORE_NAME).put({ id: id, blob: blob, commitSha: commitSha }); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); } catch (e) { console.warn('缓存保存失败', e); } }
-async function fetchLatestCommitSha(owner, repo) { try { let res = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/main`, { headers: { 'Accept': 'application/vnd.github.v3+json' } }); if (!res.ok) res = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/master`, { headers: { 'Accept': 'application/vnd.github.v3+json' } }); if (!res.ok) return null; const data = await res.json(); return data.sha; } catch (e) { return null; } }
+async function fetchLatestCommitSha(owner, repo) {
+    // 取最新 commit 只是为了生成可追溯的源码链接，拿不到不影响解析流程，所以一律吞掉错误并给 5 秒上限
+    try {
+        const h = { headers: { 'Accept': 'application/vnd.github.v3+json' } };
+        let res = await fetchWithTimeout(`https://api.github.com/repos/${owner}/${repo}/commits/main`, h, 5000);
+        if (!res.ok) res = await fetchWithTimeout(`https://api.github.com/repos/${owner}/${repo}/commits/master`, h, 5000);
+        if (!res.ok) return null;
+        const data = await res.json();
+        return data.sha;
+    } catch (e) { return null; }
+}
 
 function openCodeAdapter() {
     document.getElementById('code-adapter-modal').style.display = 'flex';
@@ -203,11 +213,21 @@ async function loadOnlineFirmware(fwId) {
 }
 
 /* ---------- 下载源码 ---------- */
+/* 带超时的 fetch：GitHub 在国内的典型表现不是立刻报错，而是「一直挂着」，
+   没有超时就会出现永远转圈的 loading（刷新前没有任何提示）。
+   超时只说明连接不畅，不代表文件不存在，所以给可区分的错误文案。 */
+function fetchWithTimeout(url, opts, ms) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms || 20000);
+    return fetch(url, Object.assign({}, opts || {}, { signal: ctrl.signal }))
+        .finally(() => clearTimeout(timer));
+}
+
 /* raw.githubusercontent.com 国内经常被墙：先直连、再走 gh-proxy，都拿不到就开新标签让用户自己存 */
 async function fetchTextWithFallback(url) {
     const proxied = 'https://gh-proxy.com/' + url;
     for (const u of [url, proxied]) {
-        try { const r = await fetch(u); if (r.ok) return await r.text(); } catch (e) { /* 换下一个源再试 */ }
+        try { const r = await fetchWithTimeout(u, null, 8000); if (r.ok) return await r.text(); } catch (e) { /* 换下一个源再试 */ }
     }
     window.open(proxied, '_blank', 'noopener');
     return null;
@@ -245,9 +265,20 @@ function downloadSourceZip() {
 }
 
 async function downloadZipWithFallback(url) {
-    let response = await fetch(url, { method: 'GET', mode: 'cors' });
-    if (!response.ok && url.includes('main.zip')) response = await fetch(url.replace('main.zip', 'master.zip'), { method: 'GET', mode: 'cors' });
-    if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+    let response;
+    try {
+        response = await fetchWithTimeout(url, { method: 'GET', mode: 'cors' }, 25000);
+    } catch (e) {
+        throw new Error('下载源码超时（25 秒无响应）。GitHub / gh-proxy 当前连不上，请稍后重试，或先下载 ZIP 手动导入。');
+    }
+    if (!response.ok && url.includes('main.zip')) {
+        try {
+            response = await fetchWithTimeout(url.replace('main.zip', 'master.zip'), { method: 'GET', mode: 'cors' }, 25000);
+        } catch (e) {
+            throw new Error('下载源码超时（25 秒无响应）。GitHub / gh-proxy 当前连不上，请稍后重试，或先下载 ZIP 手动导入。');
+        }
+    }
+    if (!response.ok) throw new Error(`下载失败：HTTP ${response.status}。仓库可能改了名或网络被拦，可改用「整套源码 ZIP」按钮手动导入。`);
     return await response.blob();
 }
 

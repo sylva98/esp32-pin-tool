@@ -3,6 +3,22 @@
 // 功能：合并本地自定义数据，提供主控/模组的 JSON 增删改查及置顶排序
 // ==========================================
 
+/* 本地数据容错读取：localStorage 里任何一条被写坏（旧版本格式、配额写一半、
+   用户手工改），裸 JSON.parse 会在启动时直接抛异常 → 整页白屏且没有任何提示。
+   统一走这里：坏数据当不存在处理，并在控制台留一条可查的告警。 */
+function readLocalJSON(key, fallback) {
+    try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return fallback;
+        const val = JSON.parse(raw);
+        if (val === null || typeof val !== 'object') return fallback;
+        return val;
+    } catch (e) {
+        console.warn(`[localStorage] ${key} 内容已损坏，已按空值处理（原数据保留，可手动清理）`, e);
+        return fallback;
+    }
+}
+
 (function initCustomLib() {
     // 1. 记录系统自带的数据 ID 集合
     window.nativeBoardIds = new Set(Object.keys(window.globalBoards || {}));
@@ -14,8 +30,8 @@
     //    之后 data/boards.js 再怎么更新都不会生效（画布显示的还是旧引脚）。这里记录被忽略项并提示清理。
     window.shadowedCustomIds = [];
     try {
-        const customBoards = JSON.parse(localStorage.getItem('esp_custom_boards') || '{}');
-        const customModules = JSON.parse(localStorage.getItem('esp_custom_modules') || '{}');
+        const customBoards = readLocalJSON('esp_custom_boards', {});
+        const customModules = readLocalJSON('esp_custom_modules', {});
 
         const mergeCustom = (store, target, natives, type) => {
             Object.keys(store).forEach(id => {
@@ -189,7 +205,7 @@ function switchManagerTab(tab) {
 function togglePin(id) {
     const isBoards = currentManagerTab === 'boards';
     const pinnedKey = isBoards ? 'esp_pinned_boards' : 'esp_pinned_modules';
-    let pinnedIds = JSON.parse(localStorage.getItem(pinnedKey) || '[]');
+    let pinnedIds = readLocalJSON(pinnedKey, []);
     
     if (pinnedIds.includes(id)) {
         pinnedIds = pinnedIds.filter(pid => pid !== id);
@@ -208,7 +224,7 @@ function renderManagerList() {
     
     const styles = window._managerBtnStyles || {};
     const pinnedKey = isBoards ? 'esp_pinned_boards' : 'esp_pinned_modules';
-    const pinnedIds = JSON.parse(localStorage.getItem(pinnedKey) || '[]');
+    const pinnedIds = readLocalJSON(pinnedKey, []);
     
     const keys = Object.keys(data).sort((a, b) => {
         const aPinned = pinnedIds.includes(a);
@@ -323,7 +339,7 @@ function saveHardwareJson() {
         }
 
         const storageKey = editingType === 'boards' ? 'esp_custom_boards' : 'esp_custom_modules';
-        const customData = JSON.parse(localStorage.getItem(storageKey) || '{}');
+        const customData = readLocalJSON(storageKey, {});
         
         customData[newId] = newData;
         localStorage.setItem(storageKey, JSON.stringify(customData));
@@ -342,7 +358,7 @@ async function deleteHardware(id) {
     if (!await uiConfirm({ title: '删除自定义硬件？', body: `「${id}」将从本地库中移除，已接入的模组不会自动重算引脚。`, confirmText: '删除', danger: true })) return;
     
     const storageKey = currentManagerTab === 'boards' ? 'esp_custom_boards' : 'esp_custom_modules';
-    const customData = JSON.parse(localStorage.getItem(storageKey) || '{}');
+    const customData = readLocalJSON(storageKey, {});
     
     delete customData[id];
     localStorage.setItem(storageKey, JSON.stringify(customData));

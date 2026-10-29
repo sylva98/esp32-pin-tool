@@ -32,7 +32,7 @@ function pinPenalty(pin) {
     return score;
 }
 
-function isSafePin(pin, modData, req, pinsStateCopy) {
+function isSafePin(pin, modData, req, pinsStateCopy, fromSource) {
     if (boardConfig.strappingPins[pin] && boardConfig.strappingPins[pin].reason.includes('仅输入')) {
         if (req.requires_output) return false; 
     }
@@ -50,7 +50,9 @@ function isSafePin(pin, modData, req, pinsStateCopy) {
     }
     if (modData.requires_adc && !boardConfig.adcPins[pin]) return false;
 
-    if (req.high_speed) {
+    // 源码点名的脚必须照接：虾哥的功放 DIN=7 就紧挨着麦克风 SD=6，这是官方硬件的真实接法，
+    // 用「相邻高速脚串扰」把它顶掉，等于把源码接法改成错的（DIN 会被挤到 15，正好占了 BCLK）。
+    if (req.high_speed && !fromSource) {
         const adjacentPins = [pin - 1, pin + 1];
         for (const adj of adjacentPins) {
             if (pinsStateCopy[adj] && pinsStateCopy[adj].state === 'used') {
@@ -60,7 +62,10 @@ function isSafePin(pin, modData, req, pinsStateCopy) {
                 if (ownerModData) {
                     // 同一接口（同一组 SPI/I2S 总线）的相邻脚本来就是「一起走线」的，
                     // 时钟与数据必然相邻，不能按串扰拒掉，否则源码指定的 MOSI=20 会被 SCK=19 顶掉
-                    if (ownerModData.interface === modData.interface) continue;
+                    // 麦克风(I2S_IN)与功放(I2S_OUT)也属于同一套音频子系统：虾哥官方板就是 SD=6、DIN=7 挨着，
+                    // 只认 interface 全等会把 DIN 从 7 挤到 17，和源码对不上
+                    const audioPair = String(ownerModData.interface || '').includes('I2S') && String(modData.interface || '').includes('I2S');
+                    if (ownerModData.interface === modData.interface || audioPair) continue;
                     const ownerReq = ownerModData.requirements.find(r => r.signal === ownerSignal);
                     if (ownerReq && ownerReq.high_speed) { return false; }
                 }
@@ -150,7 +155,7 @@ function simulateAllocateOnSide(modData, pinsStateCopy, busesCopy, forcedSide, l
                 const wp = Number(want);
                 const wst = pinsStateCopy[wp] ? pinsStateCopy[wp].state : null;
                 if (sidePins.includes(wp) && (wst === 'free' || wst === 'strapping')
-                    && !pinsAllocatedInThisMod.includes(wp) && isSafePin(wp, modData, req, pinsStateCopy)) {
+                    && !pinsAllocatedInThisMod.includes(wp) && isSafePin(wp, modData, req, pinsStateCopy, true)) {
                     allocated.push(wp);
                     pinsAllocatedInThisMod.push(wp);
                     pinsToAllocate--;
@@ -165,7 +170,7 @@ function simulateAllocateOnSide(modData, pinsStateCopy, busesCopy, forcedSide, l
                 if (pinsToAllocate <= 0) break;
                 if (!sidePins.includes(p)) continue;
                 const pst = pinsStateCopy[p] ? pinsStateCopy[p].state : null;
-                if ((pst === 'free' || pst === 'strapping') && !pinsAllocatedInThisMod.includes(p) && isSafePin(p, modData, req, pinsStateCopy)) { 
+                if ((pst === 'free' || pst === 'strapping') && !pinsAllocatedInThisMod.includes(p) && isSafePin(p, modData, req, pinsStateCopy, true)) { 
                     allocated.push(p); 
                     pinsAllocatedInThisMod.push(p); 
                     pinsToAllocate--; 
