@@ -14,6 +14,9 @@
 </style>
 </head>
 <body>
+<!-- 冒烟每次都要从空画布开始：应用现在会在启动时恢复上次接线，
+     不清掉 localStorage 的话上一次跑剩下的模组会把断言全带偏 -->
+<script>try { localStorage.clear(); } catch (e) {}</script>
 <h1>回归冒烟 · 真实点击驱动 index.html</h1>
 <pre id="out">running…</pre>
 <iframe id="app" src="../index.html"></iframe>
@@ -471,6 +474,96 @@ async function runAll() {
   doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   await sleep(80);
   ok('Esc 可关闭引脚弹窗', !shown('#pin-edit-modal'));
+
+  /* ---------- 12.9 源码解析的音频接线：mic 4/5/6、spk 7/15/16 ---------- */
+  /* 单工板（bread-compact-wifi-lcd）两套时钟是分开的。以前板数据里 I2S_IN/I2S_OUT
+     默认脚写成同一组 15/16，resolveBusKey 判成双工 → 功放顺着麦克风写进总线的
+     BCLK/LRC 复用到 4/5 上，DIN 又因「紧挨着 SD=6」被串扰规则顶到 15 —— 三根线全错，
+     而且 4/5 上两个设备打架。照这张图接，官方固件喇叭一定没声。 */
+  run(`(function(){
+      window.__keep = activeModules.slice();
+      activeModules = [];
+      rebuildPinState();
+      var mic = moduleLibrary['mic_inmp441'], spk = moduleLibrary['max98357a'];
+      var micBak = mic.preferredBySignal, spkBak = spk.preferredBySignal;
+      mic.preferredBySignal = { SD: 6, BCLK: 5, LRC: 4 };
+      spk.preferredBySignal = { DIN: 7, BCLK: 15, LRC: 16 };
+      var m1 = tryAllocate(mic, pinsState, activeBuses);
+      commitAllocation('mic_inmp441', m1.allocations);
+      var m2 = tryAllocate(spk, pinsState, activeBuses);
+      commitAllocation('max98357a', m2.allocations);
+      mic.preferredBySignal = micBak; spk.preferredBySignal = spkBak;
+  })()`);
+  const micConn = ev('JSON.stringify(activeModules[0] && activeModules[0].connections)');
+  const spkConn = ev('JSON.stringify(activeModules[1] && activeModules[1].connections)');
+  ok('麦克风照源码落在 4/5/6', /"BCLK":\s*"?5"?/.test(micConn) && /"LRC":\s*"?4"?/.test(micConn) && /"SD":\s*"?6"?/.test(micConn), micConn);
+  ok('功放照源码落在 15/16/7（不再复用麦克风时钟）',
+     /"BCLK":\s*"?15"?/.test(spkConn) && /"LRC":\s*"?16"?/.test(spkConn) && /"DIN":\s*"?7"?/.test(spkConn), spkConn);
+  const audioPins = run(`(function(){
+      var all = [];
+      activeModules.forEach(function(m){ Object.values(m.connections||{}).forEach(function(v){ String(v).split(',').forEach(function(p){ if(p) all.push(Number(p)); }); }); });
+      return all.filter(function(p, i){ return all.indexOf(p) !== i; });
+  })()`);
+  ok('麦克风与功放没有抢同一个脚', audioPins.length === 0, '重复脚 ' + audioPins.join(','));
+  run('activeModules = window.__keep; window.__keep = null; rebuildPinState(); renderPins(); renderModules(); updatePowerBudget()');
+
+  /* ---------- 12.85 数据校验提示条 + GPIO45 文案 ---------- */
+  /* 字典配错以前只打 console，用户看不见；现在必须在画布上方出现一条可展开的提示 */
+  ok('数据校验结果已收集到 window', Array.isArray(run('window.__dataValidationIssues')));
+  run(`renderDataValidationBar([{level:'error',text:'❌ [Validate] 模组【测试模组】引用了不存在的模组 ID: "xx"'}])`);
+  ok('有配置错误时出现提示条', !!doc.getElementById('data-validate-bar'));
+  ok('提示条默认收起', doc.querySelector('#data-validate-bar .dv-list').style.display === 'none');
+  doc.querySelector('#data-validate-bar .dv-head').click();
+  await sleep(60);
+  ok('点标题能展开明细', doc.querySelector('#data-validate-bar .dv-list').style.display !== 'none');
+  ok('明细文案不带 [Validate] 噪音', !/\[Validate\]/.test(doc.querySelector('#data-validate-bar .dv-list').textContent),
+     doc.querySelector('#data-validate-bar .dv-list').textContent.slice(0, 40));
+  run('closeDataValidateBar()');
+  ok('提示条可关闭', !doc.getElementById('data-validate-bar'));
+
+  /* 虾哥官方接法就把屏 RES 放在 GPIO45：提示必须说清「本板不受影响」，
+     而不是一律劝人换脚（N16R8 的 VDD_SPI 已被 eFuse 固定 3.3V） */
+  const w45 = run(`(function(){
+      var r = runHardwareDiagnostics([{ pin: 45, module: '屏幕', signal: 'RES' }], 'ESP32-S3-WROOM-1 N16R8');
+      var hit = (r.warnings || []).filter(function(x){ return x.code === 'W1'; });
+      return hit.length ? hit[0].message : '';
+  })()`);
+  ok('GPIO45 接屏 RES 的提示不再劝退', /不受影响/.test(w45), w45);
+
+  /* ---------- 12.95 接线方案持久化 ---------- */
+  /* 刷新就回到空画布，等于每改一根线都得从头再点一遍；但存档也不能「复活」用户已经清掉的方案 */
+  // 前面的删除用例把画布清空了，这里先摆两个模组当样本
+  run(`(function(){
+      if (!activeModules.length) {
+        ['mic_inmp441','max98357a'].forEach(function(id){
+          var md = moduleLibrary[id]; var r = tryAllocate(md, pinsState, activeBuses); commitAllocation(id, r.allocations);
+        });
+      }
+      renderPins(); renderModules();
+  })()`);
+  run('persistWiringState(true)');
+  ok('接线会写进本地存档', run(`!!localStorage.getItem('esp32_wiring_state_v1')`));
+  const snapBefore = run('JSON.stringify(activeModules.map(function(m){return m.connections;}))');
+  const cleared = run(`(function(){
+      window.__keep = activeModules.slice();
+      activeModules = []; rebuildPinState(); persistWiringState(true);
+      var gone = !localStorage.getItem('esp32_wiring_state_v1');
+      activeModules = window.__keep; window.__keep = null;
+      rebuildPinState(); persistWiringState(true);
+      return gone;
+  })()`);
+  ok('清空画布会同时删掉存档', cleared);
+  const restored = run(`(function(){
+      window.__keep = activeModules.slice();
+      activeModules = []; rebuildPinState();
+      var okRestore = restoreWiringState();
+      var same = JSON.stringify(activeModules.map(function(m){return m.connections;})) === ${JSON.stringify(snapBefore)};
+      var n = activeModules.length;
+      if (!okRestore) { activeModules = window.__keep; rebuildPinState(); }
+      window.__keep = null;
+      return { ok: okRestore, same: same, n: n };
+  })()`);
+  ok('刷新后能按存档恢复接线', restored.ok && restored.same && restored.n > 0, JSON.stringify(restored));
 
   /* ---------- 13. 布局 ---------- */
   const bodyOverflow = doc.body.scrollWidth - win.innerWidth;
