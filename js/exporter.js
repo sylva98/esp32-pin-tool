@@ -1,171 +1,174 @@
 // ==========================================
-// 导出与生成层 (Exporter)
+// 打印模块 (exporter.js)
 // ==========================================
 
-function generateCodePreview() {
-    let code = `/*\n * 自动生成\n * 平台: ${boardConfig.boardName}\n */\n\n#ifndef PIN_CONFIG_H\n#define PIN_CONFIG_H\n\n`;
-    let hasI2C = false, hasSPI = false;
-    activeModules.forEach(mod => { if (mod.interface === 'I2C') hasI2C = true; if (mod.interface === 'SPI') hasSPI = true; });
-    
-    if (hasI2C) {
-        code += `/* --- I2C Bus --- */\n`;
-        const i2cMod = activeModules.find(m => m.interface === 'I2C');
-        if (i2cMod?.connections['SDA'] && i2cMod.connections['SDA'] !== "dropped") code += `#define I2C_MASTER_SDA_IO  ${i2cMod.connections['SDA']}\n`;
-        if (i2cMod?.connections['SCL'] && i2cMod.connections['SCL'] !== "dropped") code += `#define I2C_MASTER_SCL_IO  ${i2cMod.connections['SCL']}\n\n`;
-    }
-    if (hasSPI) {
-        code += `/* --- SPI Bus --- */\n`;
-        const spiMod = activeModules.find(m => m.interface === 'SPI');
-        ['MOSI', 'MISO', 'SCK', 'CS'].forEach(sig => {
-            if (spiMod?.connections[sig] && spiMod.connections[sig] !== "dropped") code += `#define SPI_MASTER_${sig}_IO  ${spiMod.connections[sig]}\n`;
-        });
-        code += `\n`;
-    }
-    
-    activeModules.forEach((mod) => {
-        const modData = moduleLibrary[mod.id];
-        const specificSignals = Object.keys(mod.connections).filter(sig => 
-            !(mod.interface === 'I2C' && ['SDA', 'SCL'].includes(sig)) && !(mod.interface === 'SPI' && ['MOSI', 'MISO', 'SCK', 'CS'].includes(sig))
-        );
-        if (specificSignals.length > 0) {
-            code += `/* --- ${modData.name} --- */\n`;
-            specificSignals.forEach(sig => {
-                const pinStr = mod.connections[sig];
-                const prefix = mod.id.toUpperCase();
-                if (pinStr === "dropped") { code += `// #define ${prefix}_${sig}  (未连接)\n`; } 
-                else if (String(pinStr).includes(',')) { String(pinStr).split(',').forEach((p, i) => { code += `#define ${prefix}_${sig}_${i}  ${p}\n`; }); } 
-                else {
-                    if (mod.interface === 'GPIO') {
-                        code += `#define ${prefix}_${sig}  ${pinStr}\n// ⚠️ 若外接按键或无源传感器，请务必启用内部上拉：\n// pinMode(${prefix}_${sig}, INPUT_PULLUP);\n`;
-                    } else { code += `#define ${prefix}_${sig}  ${pinStr}\n`; }
-                }
-            });
-            code += `\n`;
-        }
-    });
-    code += `#endif\n`;
-    document.getElementById('code-preview').textContent = code;
-    document.getElementById('code-panel').style.display = 'block';
-}
-
+/**
+ * 纯净打印接线单（采用影子 iframe 方案，绝对不打印侧边栏和弹窗）
+ */
 function printWiringSheet() {
-    if (activeModules.length === 0) { return alert('当前没有接入任何模组，无需打印。'); }
-    
+    if (!boardConfig) {
+        uiToast('当前没有加载任何主控板配置', { type: 'warn' });
+        return;
+    }
+
+    // 1. 准备打印的 HTML 内容
+    let html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>ESP32 硬件接线指导单</title>
+            <style>
+                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #000; padding: 20px; }
+                .print-header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+                .print-title { font-size: 24px; font-weight: bold; margin: 0 0 10px 0; }
+                .print-meta { font-size: 14px; color: #555; }
+                .print-warning-box { border: 2px solid #dc3545; background: #fff3f3; padding: 10px; margin-bottom: 20px; font-size: 14px; page-break-inside: avoid; }
+                .print-warning-title { color: #dc3545; font-weight: bold; margin-bottom: 5px; }
+                .print-module-block { margin-bottom: 25px; page-break-inside: avoid; }
+                .print-module-name { font-size: 18px; font-weight: bold; background: #eee; padding: 8px; margin-bottom: 10px; border-left: 5px solid #333; }
+                .print-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+                .print-table th, .print-table td { border: 1px solid #999; padding: 10px; text-align: left; font-size: 14px; }
+                .print-table th { background: #f0f0f0; font-weight: bold; }
+                .print-footer { text-align: center; font-size: 12px; color: #888; margin-top: 40px; border-top: 1px solid #ccc; padding-top: 10px; }
+                
+                /* 本地短接提示框 */
+                .print-short-box { background: #f0fdf4; border: 2px dashed #bbf7d0; padding: 12px; border-radius: 4px; margin-bottom: 15px; font-size: 14px; color: #166534; }
+                .print-short-title { font-weight: bold; margin-bottom: 5px; font-size: 15px; }
+            </style>
+        </head>
+        <body>
+            <div class="print-header">
+                <h1 class="print-title">ESP32 硬件接线指导单</h1>
+                <div class="print-meta">主控型号：${boardConfig.boardName} | 打印时间：${new Date().toLocaleString()}</div>
+            </div>
+    `;
+
+    // 计算是否超载
     let totalCurrent = 0;
+    if (typeof _onboardSlots !== 'undefined') {
+        _onboardSlots.forEach(slot => totalCurrent += resolveOnboardPeak(slot));
+    }
     activeModules.forEach(mod => {
         const mData = moduleLibrary[mod.id];
-        totalCurrent += (mod.overrides?.current !== undefined ? mod.overrides.current : (mData.peak_current_ma || 0));
+        const isPure5V = mData.power_pins && mData.power_pins.some(p => p.connect_to === '5V') && !mData.power_pins.some(p => p.connect_to === '3.3V');
+        if (!isPure5V) {
+            totalCurrent += (mod.overrides?.current !== undefined ? mod.overrides.current : (mData.peak_current_ma || 0));
+        }
     });
-    const maxCurrent = boardConfig.max_current_ma || 500;
-    const isOverload = totalCurrent > maxCurrent;
 
-    const printSection = document.getElementById('print-section');
-    let html = `
-        <div class="print-header">
-            <h1 class="print-title">硬件接线施工单</h1>
-            <div class="print-meta">
-                主控型号：<strong>${boardConfig.boardName}</strong> &nbsp;|&nbsp; 
-                生成日期：${new Date().toLocaleDateString()} &nbsp;|&nbsp; 
-                模组总数：${activeModules.length} 个
-            </div>
-        </div>
-    `;
-
-    if (typeof checkHighSpeedWarning === 'function' && checkHighSpeedWarning()) {
+    if (totalCurrent > (boardConfig.max_current_ma || 500)) {
         html += `
             <div class="print-warning-box">
-                <div class="print-warning-title">⚠️ 物理走线警告</div>
-                <div>本项目包含 SPI/I2S 等高频信号引脚。为确保通信稳定，请确保信号线（特别是时钟线与数据线）长度不超过 10cm，且尽量不要平行缠绕，尽量包地处理。</div>
+                <div class="print-warning-title">⚠️ 供电超载警告</div>
+                当前总功耗预估为 ${totalCurrent} mA，已超过主板安全上限。请焊接工程师务必注意：大电流设备（如屏幕、功放）请直接接外部独立供电，切勿全部连接主板 3.3V 排针。
             </div>
         `;
     }
 
-    if (isOverload) {
-        html += `
-            <div style="border: 2px solid #dc3545; background: #fff3f3; padding: 12px; margin-bottom: 20px; font-size: 13px; color: #333;">
-                <strong style="color: #dc3545; font-size: 15px;">⚠️ 系统总功耗已超载</strong><br>
-                为避免满桌飞线，建议采用如下供电方案（只需一个电源）：<br>
-                1. 请使用一个 <strong>5V/2A 以上的电源</strong>（如大功率充电宝）插在主控 USB 口上。<br>
-                2. 将 <strong>大功耗模组（如功放）</strong> 的 VCC 接至主控板上的 <strong>5V 或 VIN 引脚</strong>（直通充电宝）。<br>
-                3. 将 <strong>屏幕、传感器</strong> 的 VCC 接至主控板上的 <strong>3.3V 引脚</strong>。<br>
-                4. 将它们的 GND 统一接在主控板 GND 上（主板上天然共地）。
-            </div>
-        `;
+    // 3.1 板载设备
+    if (typeof _onboardSlots !== 'undefined') {
+        _onboardSlots.forEach(slot => {
+            const mod = moduleLibrary[slot.moduleId] || {};
+            html += `
+                <div class="print-module-block">
+                    <div class="print-module-name">🔒 ${mod.name || slot.label} (板载焊接)</div>
+                    <table class="print-table">
+                        <tr><th style="width: 30%;">信号名称</th><th style="width: 30%;">对应引脚</th><th style="width: 40%;">备注</th></tr>
+                        <tr><td>说明</td><td colspan="2">该设备已由 PCB 直连，无需飞线焊接。</td></tr>
+                    </table>
+                </div>
+            `;
+        });
     }
-    
+
+    // 3.2 外接模组
     activeModules.forEach((mod, index) => {
-        const modData = moduleLibrary[mod.id];
-        
+        const modData = moduleLibrary[mod.id] || {};
         html += `
             <div class="print-module-block">
-                <div class="print-module-name">${index + 1}. ${modData.name}</div>
-                <table class="print-table">
-                    <thead><tr><th style="width: 15%; text-align: center;">完成</th><th style="width: 30%;">信号/电源名称</th><th style="width: 55%;">目标引脚</th></tr></thead>
-                    <tbody>
+                <div class="print-module-name">${index + 1}. ${modData.name || '未知模组'}</div>
         `;
-        
-        for (const [signal, pinNum] of Object.entries(mod.connections)) {
-            if (pinNum === "dropped") {
-                html += `<tr><td style="text-align: center;">-</td><td><strong>${signal}</strong></td><td style="color: #dc3545; text-decoration: line-through;">已放弃连接</td></tr>`;
-            } else {
-                let isShared = (mod.interface === 'I2C' || mod.interface === 'SPI') && (signal === 'SDA' || signal === 'SCL' || signal === 'MOSI' || signal === 'MISO' || signal === 'SCK');
-                let note = isShared ? ' <span style="font-size:12px; color:#666;">(总线共享)</span>' : '';
-                html += `<tr><td style="text-align: center;"><div class="print-checkbox"></div></td><td><strong>${signal}</strong></td><td>GPIO ${pinNum} ${note}</td></tr>`;
-            }
-        }
 
-        if (modData.power_pins && modData.power_pins.length > 0) {
-            modData.power_pins.forEach(p => {
-                // 提取最简短的指导语，抛弃长句
-                let displayWarning = "";
-                let isDanger = false;
-
-                if (isOverload) {
-                    if (p.connect_to === '5V') {
-                        displayWarning = "接外部 5V 供电";
-                        isDanger = true;
-                    } else if (p.connect_to === '3.3V') {
-                        displayWarning = "接降压模块输出";
-                        isDanger = false; // 降压模块输出一般不算致命危险，不标红
-                    } else {
-                        displayWarning = "统一共地";
-                    }
-                } else {
-                    displayWarning = p.connect_to === 'GND' ? "接主板 GND" : "接主板 " + p.connect_to;
-                }
-
-                let connectHtml = isDanger 
-                    ? `<strong style="color:#dc3545;">${p.connect_to}</strong> <span style="color:#dc3545; font-size:12px;">(${displayWarning})</span>`
-                    : `<strong style="color:#333;">${p.connect_to}</strong> <span style="color:#888; font-size:12px;">(${displayWarning})</span>`;
-
-                html += `
-                    <tr>
-                        <td style="text-align: center;"><div class="print-checkbox"></div></td>
-                        <td><strong>${p.pin}</strong></td>
-                        <td>${connectHtml}</td>
-                    </tr>
-                `;
+        // 🔥 打印本地短接提示
+        if (modData.local_links && modData.local_links.length > 0) {
+            html += `<div class="print-short-box">
+                <div class="print-short-title">⚙️ 硬件特殊配置（必须短接）</div>
+                <ul style="margin: 5px 0 0 0; padding-left: 20px;">`;
+            modData.local_links.forEach(link => {
+                html += `<li>请用短接线将模块上的 <strong>${link.from}</strong> 引脚连接到 <strong>${link.to}</strong>（${link.reason}）。</li>`;
             });
+            html += `</ul></div>`;
         }
 
-        html += `</tbody></table></div>`;
-    });
-    
-    html += `
-        <div class="print-footer">
-            接线人签字：____________________ &nbsp;&nbsp;&nbsp;&nbsp; 检查人签字：____________________ &nbsp;&nbsp;&nbsp;&nbsp; 日期：____________________
-            <br><br>由 ESP32 智能配置系统自动生成
-        </div>
-    `;
-    printSection.innerHTML = html;
-    window.print();
-}
+        html += `<table class="print-table">
+                    <tr><th style="width: 12%;">引脚号</th><th style="width: 28%;">模组丝印</th><th style="width: 28%;">连接目标</th><th style="width: 32%;">备注</th></tr>
+        `;
 
-function exportConfig() { downloadFile("esp32_config.json", JSON.stringify(activeModules, null, 2)); }
-function exportCHeader() { downloadFile("pin_config.h", document.getElementById('code-preview').textContent); }
-function downloadFile(filename, content) {
-    const a = document.createElement('a');
-    a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(content);
-    a.download = filename;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        // 按实物引脚顺序出接线单（pinOrder）：1→8 从上到下，和手里那块屏的排线一一对应
+        const order = (modData.pinOrder && modData.pinOrder.length) ? modData.pinOrder.slice() : [];
+        const printed = new Set();
+        const rowOf = (silk, target, note, no) => `<tr><td>${no}</td><td><strong>${silk}</strong></td><td>${target}</td><td style="font-size:12px;color:#666;">${note || ''}</td></tr>`;
+
+        let pinNo = 0;
+        order.forEach(name => {
+            const pp = (modData.power_pins || []).find(p => p.pin === name);
+            if (pp) {
+                printed.add(name);
+                html += rowOf(pp.pin, `<strong>${pp.connect_to}</strong>`, pp.warning || '', ++pinNo);
+                return;
+            }
+            const pinNum = mod.connections[name];
+            if (pinNum === 'dropped') { printed.add(name); html += rowOf(signalDisplayName(modData, name), '<span style="color:#999;">未接</span>', '已放弃连接', ++pinNo); return; }
+            if (pinNum) { printed.add(name); html += rowOf(signalDisplayName(modData, name), `<span style="font-weight:bold; color:#d32f2f;">GPIO ${pinNum}</span>`, '', ++pinNo); }
+        });
+
+        // 字典里有、但 pinOrder 没排到的信号/电源，补在后面，避免漏打
+        for (const [signal, pinNum] of Object.entries(mod.connections)) {
+            if (printed.has(signal)) continue;
+            if (pinNum === 'dropped') { html += rowOf(signalDisplayName(modData, signal), '<span style="color:#999;">未接</span>', '已放弃连接', ++pinNo); continue; }
+            html += rowOf(signalDisplayName(modData, signal), `<span style="font-weight:bold; color:#d32f2f;">GPIO ${pinNum}</span>`, '', ++pinNo);
+        }
+        // 该接却没接上的脚也要打出来（否则打印单看起来是「全都接好了」）
+        (modData.requirements || []).forEach(r => {
+            if (printed.has(r.signal) || mod.connections[r.signal]) return;
+            if (mod.enabledPins && mod.enabledPins[r.signal] === false) return;
+            html += rowOf(signalDisplayName(modData, r.signal), '<span style="color:#dc3545; font-weight:bold;">未分配</span>', '缺这根线，模组无法工作', ++pinNo);
+        });
+        (modData.power_pins || []).forEach(p => {
+            if (printed.has(p.pin)) return;
+            if (mod.enabledPins && mod.enabledPins[p.pin] === false) return; // 实物没这根脚（如 7 针屏无 BLK）
+            html += rowOf(p.pin, `<strong>${p.connect_to}</strong>`, p.warning || '', ++pinNo);
+        });
+
+        html += `</table></div>`;
+    });
+
+    html += `<div class="print-footer">由 ESP32 引脚智能配置系统生成</div></body></html>`;
+
+    // 🔥 2. 核心黑科技：利用隐藏的 iframe 进行纯净打印
+    const printFrame = document.createElement('iframe');
+    printFrame.style.position = 'fixed';
+    printFrame.style.right = '0';
+    printFrame.style.bottom = '0';
+    printFrame.style.width = '0';
+    printFrame.style.height = '0';
+    printFrame.style.border = 'none';
+    document.body.appendChild(printFrame);
+
+    const frameDoc = printFrame.contentWindow.document;
+    frameDoc.open();
+    frameDoc.write(html);
+    frameDoc.close();
+
+    // 等待 iframe 内容加载完成后触发打印
+    printFrame.onload = () => {
+        printFrame.contentWindow.focus();
+        printFrame.contentWindow.print();
+        
+        // 打印完成后（或取消后）销毁 iframe
+        setTimeout(() => {
+            document.body.removeChild(printFrame);
+        }, 1000);
+    };
 }

@@ -1,78 +1,179 @@
 // ==========================================
-// UI 组件层：微调面板
+// UI 组件层：模组参数微调弹窗（唯一实现）
+// 画布模组与购物车项共用同一个弹窗，靠 _mpTarget 区分作用对象：
+//   { kind: 'active', index }  画布上的模组 —— 可改电流 + 裁剪信号数量 + 逐根换脚
+//   { kind: 'cart',   id    }  购物车里的候选 —— 只能改电流（此时还没分引脚）
 // ==========================================
 
-function openEditPanel(index) {
-    editingModuleIndex = index;
-    const mod = activeModules[index];
-    const modData = moduleLibrary[mod.id];
+let _mpTarget = null;
 
-    const currentVal = mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0);
-    document.getElementById('edit-current').value = currentVal;
-    document.getElementById('edit-current').placeholder = `默认: ${modData.peak_current_ma || 0} mA`;
+/* 把两种作用对象统一成同一份视图数据，渲染和保存都只认这份结构 */
+function _mpResolve(target) {
+    if (!target) return null;
 
-    const warningContainerId = 'edit-physics-warning';
-    let warningContainer = document.getElementById(warningContainerId);
-    
-    if (!warningContainer) {
-        warningContainer = document.createElement('div');
-        warningContainer.id = warningContainerId;
-        warningContainer.style.cssText = "background: #fff8e1; border-left: 4px solid #ffc107; color: #8a6d3b; padding: 12px; border-radius: 4px; font-size: 12px; margin-bottom: 15px; line-height: 1.6;";
-        const currentInput = document.getElementById('edit-current');
-        currentInput.parentNode.insertBefore(warningContainer, currentInput.nextSibling);
-    }
-    
-    if (modData.peak_current_ma > 100) {
-        warningContainer.style.display = 'block';
-        warningContainer.innerHTML = `
-            <strong>⚠️ 自定义功耗风险提示：</strong><br>
-            修改此数值仅用于调整系统的规划预算。<strong>降低数值并不会减少模组实际物理耗电</strong>。<br>
-            如果您为了通过预算检查而强行改小数值，请务必确保在代码或硬件上采取了降功耗措施。
-        `;
-    } else {
-        warningContainer.style.display = 'none';
+    if (target.kind === 'active') {
+        const mod = activeModules[target.index];
+        if (!mod) return null;
+        const modData = moduleLibrary[mod.id];
+        if (!modData) return null;
+        return {
+            kind: 'active',
+            mod,
+            modData,
+            isOnboard: false,
+            name: modData.name,
+            currentVal: mod.overrides?.current !== undefined ? mod.overrides.current : (modData.peak_current_ma || 0),
+            defaultCurrent: modData.peak_current_ma || 0
+        };
     }
 
-    const pinCountSelect = document.getElementById('edit-pin-count');
-    pinCountSelect.innerHTML = '';
-    const batchReq = modData.requirements.find(r => r.count > 1);
-    const countContainer = document.getElementById('pin-count-container');
-    
+    const item = cartSelectedModules.find(m => m.id === target.id);
+    if (!item) return null;
+    const modData = moduleLibrary[target.id];
+    if (!modData) return null;
+    return {
+        kind: 'cart',
+        mod: item,
+        modData,
+        isOnboard: !!item.isOnboard,
+        name: modData.name + (item.isOnboard ? ' (板载)' : ''),
+        currentVal: item.overrides?.current !== undefined ? item.overrides.current : (modData.peak_current_ma || 0),
+        defaultCurrent: modData.peak_current_ma || 0
+    };
+}
+
+function openModuleParams(target) {
+    const ctx = _mpResolve(target);
+    if (!ctx) {
+        uiToast('找不到该模组，可能已被移除', { type: 'warn' });
+        return;
+    }
+    _mpTarget = { kind: ctx.kind, index: target.index, id: target.id };
+    // 画布上下文依赖这个全局变量做「换一个」的重入
+    editingModuleIndex = ctx.kind === 'active' ? target.index : -1;
+
+    document.getElementById('mp-name').textContent = ctx.name;
+    document.getElementById('mp-current').value = ctx.currentVal;
+    document.getElementById('mp-current').placeholder = `默认: ${ctx.defaultCurrent} mA`;
+
+    const warn = document.getElementById('mp-warning');
+    warn.innerHTML = ctx.isOnboard
+        ? '<strong>🔒 板载设备提示：</strong>此设备已焊接在 PCB 上，不可移除。功耗微调仅影响供电预算计算，不会改变真实物理功耗。'
+        : '<strong>⚠️ 风险提示：</strong>降低数值不会减少模组实际物理耗电。若强行改小以通过预算检查，请务必在代码或硬件上采取降功耗措施。';
+
+    // 只有画布上的模组才谈得上「已经分了脚」，购物车阶段没有引脚可裁
+    const batchReq = ctx.kind === 'active' ? (ctx.modData.requirements || []).find(r => r.count > 1) : null;
+    const countWrap = document.getElementById('mp-pin-count-wrap');
+    const pinListWrap = document.getElementById('mp-pin-list-wrap');
+    const pinList = document.getElementById('mp-pin-list');
+
     if (batchReq) {
-        countContainer.style.display = 'block';
-        document.getElementById('pin-count-label').innerText = `${batchReq.signal} 数量裁剪:`;
+        countWrap.style.display = 'block';
+        document.getElementById('mp-pin-count-label').textContent = `${batchReq.signal} 数量裁剪:`;
+        const sel = document.getElementById('mp-pin-count');
+        sel.innerHTML = '';
+        const assigned = String(ctx.mod.connections[batchReq.signal] || '').split(',').filter(x => x && x !== 'dropped').length;
         for (let i = 1; i <= batchReq.count; i++) {
-            const option = document.createElement('option');
-            option.value = i;
-            option.textContent = `${i} 根`;
-            const currentAssignedCount = String(mod.connections[batchReq.signal] || "").split(',').filter(x => x && x !== "dropped").length;
-            if (currentAssignedCount === i) option.selected = true;
-            pinCountSelect.appendChild(option);
+            const opt = document.createElement('option');
+            opt.value = i;
+            opt.textContent = `${i} 根`;
+            if (assigned === i) opt.selected = true;
+            sel.appendChild(opt);
         }
     } else {
-        countContainer.style.display = 'none';
+        countWrap.style.display = 'none';
     }
 
-    const pinListContainer = document.getElementById('edit-pin-list');
-    pinListContainer.innerHTML = '';
-    for (const [signal, pinStr] of Object.entries(mod.connections)) {
-        if (pinStr === "dropped") continue;
-        const pinDiv = document.createElement('div');
-        pinDiv.style.cssText = "display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding:5px; background:#f8f9fa; border-radius:4px;";
-        pinDiv.innerHTML = `
-            <span><strong>${signal}</strong> ➡ GPIO ${pinStr}</span>
-            <button onclick="autoReroutePin('${signal}')" style="background:#007bff; color:white; padding:3px 8px; border-radius:4px; border:none; cursor:pointer; width:auto; margin:0; font-size:12px;">🔄 换一个</button>
-        `;
-        pinListContainer.appendChild(pinDiv);
+    if (ctx.kind === 'active') {
+        pinListWrap.style.display = 'block';
+        pinList.innerHTML = '';
+        for (const [signal, pinStr] of Object.entries(ctx.mod.connections)) {
+            if (pinStr === 'dropped') continue;
+            const row = document.createElement('div');
+            row.className = 'mp-pin-row';
+            row.innerHTML = `<span><strong>${escapeHtml(signal)}</strong> ➡ GPIO ${escapeHtml(String(pinStr))}</span>
+                <button class="mp-pin-route" data-signal="${escapeHtml(signal)}">🔄 换一个</button>`;
+            row.querySelector('.mp-pin-route').addEventListener('click', () => autoReroutePin(signal));
+            pinList.appendChild(row);
+        }
+    } else {
+        pinListWrap.style.display = 'none';
+        pinList.innerHTML = '';
     }
 
-    document.getElementById('edit-modal').style.display = 'flex';
+    const modal = document.getElementById('module-params-modal');
+    modal.style.display = 'flex';
+    // 购物车弹窗里再开这一层，必须压在购物窗之上
+    modal.style.zIndex = ctx.kind === 'cart' ? '9999999' : '';
 }
 
-function closeEditPanel() {
-    document.getElementById('edit-modal').style.display = 'none';
+function closeModuleParams() {
+    document.getElementById('module-params-modal').style.display = 'none';
+    _mpTarget = null;
     editingModuleIndex = -1;
 }
+
+function saveModuleParams() {
+    const ctx = _mpResolve(_mpTarget);
+    if (!ctx) { closeModuleParams(); return; }
+
+    const newCurrent = Number(document.getElementById('mp-current').value);
+    ctx.mod.overrides = ctx.mod.overrides || {};
+    ctx.mod.overrides.current = newCurrent;
+
+    if (ctx.kind === 'cart') {
+        ctx.mod.failed = false;
+        // 板载项要同步到槽位与板级兼容数据，否则功耗预算仍读旧值
+        if (ctx.isOnboard && typeof _onboardSlots !== 'undefined') {
+            const slot = _onboardSlots.find(s => s.slotId === ctx.mod.slotId);
+            if (slot) {
+                slot._peakOverride = newCurrent;
+                const compatDev = (boardConfig.onboard_devices || []).find(d => d.id === ctx.mod.id);
+                if (compatDev) compatDev.peak_current_ma = newCurrent;
+            }
+        }
+        renderCartRightList();
+        closeModuleParams();
+        if (typeof renderModules === 'function') renderModules();
+        else updatePowerBudget();
+        return;
+    }
+
+    // 画布模组：裁剪批量信号后要真的把多出来的引脚放回空闲池
+    const batchReq = (ctx.modData.requirements || []).find(r => r.count > 1);
+    const countWrap = document.getElementById('mp-pin-count-wrap');
+    if (batchReq && countWrap.style.display !== 'none') {
+        const targetCount = Number(document.getElementById('mp-pin-count').value);
+        const pins = String(ctx.mod.connections[batchReq.signal] || '').split(',').filter(x => x && x !== 'dropped');
+        if (targetCount < pins.length) {
+            pins.splice(targetCount).forEach(p => {
+                if (pinsState[Number(p)]) pinsState[Number(p)] = { state: 'free', label: 'Free' };
+            });
+            ctx.mod.connections[batchReq.signal] = pins.join(',');
+        }
+    }
+
+    for (const [signal, pinStr] of Object.entries(ctx.mod.connections)) {
+        if (pinStr === 'dropped') continue;
+        const req = (ctx.modData.requirements || []).find(r => r.signal === signal);
+        String(pinStr).split(',').map(Number).forEach(p => {
+            const warnMsg = checkCrosstalkWarning(p, req);
+            if (warnMsg) uiToast(warnMsg, { type: 'warn', duration: 4200 });
+        });
+    }
+
+    renderPins();
+    renderModules();
+    updatePowerBudget();
+    closeModuleParams();
+}
+
+// ---------- 兼容入口：旧调用点仍然可用 ----------
+function openEditPanel(index) { openModuleParams({ kind: 'active', index }); }
+function closeEditPanel() { closeModuleParams(); }
+function openCartEditModal(modId) { openModuleParams({ kind: 'cart', id: modId }); }
+function closeCartEditModal() { closeModuleParams(); }
+function saveCartModuleParams() { saveModuleParams(); }
 
 function checkCrosstalkWarning(pin, currentReq) {
     if (!currentReq || !currentReq.high_speed) return null;
@@ -95,6 +196,7 @@ function checkCrosstalkWarning(pin, currentReq) {
 
 function autoReroutePin(signal) {
     const mod = activeModules[editingModuleIndex];
+    if (!mod) return;
     const modData = moduleLibrary[mod.id];
 
     const currentPins = String(mod.connections[signal]).split(',').map(Number);
@@ -106,19 +208,23 @@ function autoReroutePin(signal) {
 
     const req = modData.requirements.find(r => r.signal === signal);
     let pinsStateCopy = {};
-    for (let i = 0; i <= 48; i++) { if(pinsState[i]) pinsStateCopy[i] = { ...pinsState[i] }; }
+    for (let i = 0; i <= boardConfig.max_pin; i++) { if (pinsState[i]) pinsStateCopy[i] = { ...pinsState[i] }; }
 
     let allocated = [];
     if (modData.interface && boardConfig.defaultInterfaces[modData.interface] && boardConfig.defaultInterfaces[modData.interface][signal]) {
         const dp = boardConfig.defaultInterfaces[modData.interface][signal];
-        if (pinsStateCopy[dp] === 'free' && isSafePin(dp, modData, req, pinsStateCopy)) {
+        if (pinsStateCopy[dp] && pinsStateCopy[dp].state === 'free' && isSafePin(dp, modData, req, pinsStateCopy)) {
             allocated.push(dp);
-            pinsStateCopy[dp].state = 'used';
+            pinsStateCopy[dp] = { state: 'used', owner: mod.id, signal: signal };
         }
     }
     if (allocated.length === 0) {
-        for (let i = 0; i <= 48; i++) {
-            if (pinsStateCopy[i].state === 'free' && isSafePin(i, modData, req, pinsStateCopy)) {
+        for (let i = 0; i <= boardConfig.max_pin; i++) {
+            const st = pinsStateCopy[i];
+            if (!st || st.state !== 'free') continue;
+            if (boardConfig.availableGpios && !boardConfig.availableGpios.includes(i)) continue;
+            if (typeof isHeaderPin === 'function' && !isHeaderPin(i)) continue;
+            if (isSafePin(i, modData, req, pinsStateCopy)) {
                 allocated.push(i);
                 break;
             }
@@ -132,45 +238,8 @@ function autoReroutePin(signal) {
         renderModules();
         openEditPanel(editingModuleIndex);
     } else {
-        alert(`找不到其他安全的空闲引脚给 ${signal} 了！（已为您避开高频干扰区）`);
+        uiToast(`找不到其他安全的空闲引脚给 ${signal}（已避开高频干扰区）`, { type: 'warn', duration: 4200 });
         currentPins.forEach(p => { pinsState[p] = { state: 'used', owner: mod.id, signal: signal }; });
         renderPins();
     }
-}
-
-function saveModuleParams() {
-    const newCurrent = Number(document.getElementById('edit-current').value);
-    const mod = activeModules[editingModuleIndex];
-    const modData = moduleLibrary[mod.id];
-    
-    mod.overrides = mod.overrides || {};
-    mod.overrides.current = newCurrent;
-
-    const batchReq = modData.requirements.find(r => r.count > 1);
-    const countContainer = document.getElementById('pin-count-container');
-    if (batchReq && countContainer.style.display !== 'none') {
-        const targetCount = Number(document.getElementById('edit-pin-count').value);
-        let currentPins = String(mod.connections[batchReq.signal] || "").split(',').filter(x => x && x !== "dropped");
-        
-        if (targetCount < currentPins.length) {
-            const toDrop = currentPins.splice(targetCount);
-            toDrop.forEach(p => { if (pinsState[Number(p)]) pinsState[Number(p)] = { state: 'free', label: 'Free' }; });
-            mod.connections[batchReq.signal] = currentPins.join(',');
-        }
-    }
-
-    for (const [signal, pinStr] of Object.entries(mod.connections)) {
-        if (pinStr === "dropped") continue;
-        const req = modData.requirements.find(r => r.signal === signal);
-        const pins = String(pinStr).split(',').map(Number);
-        for (const p of pins) {
-            const warnMsg = checkCrosstalkWarning(p, req);
-            if (warnMsg) { alert(warnMsg); }
-        }
-    }
-
-    renderPins();
-    renderModules();
-    updatePowerBudget();
-    closeEditPanel();
 }
