@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ESP32 引脚工具 · 回归冒烟</title>
+<style>
+  body { font-family: -apple-system, Menlo, monospace; margin: 0; padding: 16px; background: #0f172a; color: #e2e8f0; }
+  h1 { font-size: 15px; margin: 0 0 10px; }
+  #out { font-size: 12.5px; line-height: 1.7; white-space: pre-wrap; margin: 0; }
+  #out .p { color: #4ade80; }
+  #out .f { color: #f87171; font-weight: 700; }
+  #out .i { color: #94a3b8; }
+  iframe { position: fixed; left: -3000px; top: 0; width: 1440px; height: 900px; border: 0; }
+</style>
+</head>
+<body>
+<h1>回归冒烟 · 真实点击驱动 index.html</h1>
+<pre id="out">running…</pre>
+<iframe id="app" src="../index.html"></iframe>
+<script>
+const out = document.getElementById('out');
+const lines = [];
+let fails = 0;
+
+function ok(name, cond, extra) {
+  if (!cond) fails++;
+  lines.push(`<span class="${cond ? 'p' : 'f'}">${cond ? 'PASS' : 'FAIL'}</span> ${name}${(!cond && extra) ? '  <span class="i">' + extra + '</span>' : ''}`);
+  flush();
+}
+function info(t) { lines.push(`<span class="i">· ${t}</span>`); flush(); }
+function flush() { out.innerHTML = lines.join('\n'); }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+/* 等某个状态真正成立，最多 timeout 毫秒；带过渡动画的交互用它，比固定 sleep 稳 */
+async function waitFor(fn, timeout = 1000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeout) {
+    if (fn()) return true;
+    await sleep(40);
+  }
+  return fn();
+}
+
+/* index.html 的状态变量都是顶层 let（不挂 window），必须用 eval 在同一作用域里读写 */
+let win = null;
+const ev = expr => win.eval('(' + expr + ')');
+const run = code => win.eval(code);
+
+/* 扫描所有内联 onclick，检查被调函数是否真的存在。
+   这是「按钮点了没反应」唯一可靠的防线：重构后任何名字写错都能立刻抓到 */
+function deadInlineHandlers(doc) {
+  const bad = [];
+  doc.querySelectorAll('[onclick]').forEach(el => {
+    const code = (el.getAttribute('onclick') || '').trim();
+    const m = code.match(/^(?:event\.stopPropagation\(\)\s*;\s*)?([A-Za-z_$][\w$]*)\s*\(/);
+    if (!m) return;                                  // this.parentNode / document.xxx 这类跳过
+    const name = m[1];
+    if (name === 'event' || name === 'document') return;
+    let t = 'undefined';
+    try { t = typeof win.eval(name); } catch (e) { t = 'error'; }
+    if (t !== 'function') bad.push(`${name} @ ${el.id || el.className || el.tagName}`);
+  });
+  return [...new Set(bad)];
+}
+/* data-act 委托模式的同等防线：注册表里必须真有这个动作 */
+function deadDataActions(doc) {
+  const reg = win.WB && win.WB.actions;
+  if (!reg) return [];
+  const bad = [];
+  doc.querySelectorAll('[data-act]').forEach(el => {
+    const a = el.getAttribute('data-act');
+    if (!(a in reg)) bad.push(`${a} @ ${el.id || el.className || el.tagName}`);
+  });
+  return [...new Set(bad)];
+}
+function checkHandlers(doc, tag) {
+  const dead = deadInlineHandlers(doc).concat(deadDataActions(doc));
+  ok(`[${tag}] 所有按键都能找到处理函数`, dead.length === 0, dead.slice(0, 6).join(' | '));
+}
+
+const frame = document.getElementById('app');
+frame.addEventListener('load', () => { runAll().catch(e => ok('脚本执行未中断', false, e && e.message)); });
+
+async function runAll() {
+  win = frame.contentWindow;
+  const doc = win.document;
+  await sleep(700);
+
+  /* ---------- 1. 启动 ---------- */
+  ok('页面初始化完成（boardConfig 有值）', !!ev('boardConfig && boardConfig.boardName'));
+  ok('模组库已加载', ev('moduleLibrary ? Object.keys(moduleLibrary).length : 0') > 5);
+  ok('主板下拉框有选项', doc.getElementById('board-select').options.length > 0);
+  checkHandlers(doc, '初始');
+
+  /* ---------- 2. 购物车窗 ---------- */
+  run('openCartModal()');
+  await sleep(80);
+  ok('购物窗可打开', win.getComputedStyle(doc.getElementById('cart-modal')).display !== 'none');
+  ok('左侧可选模组列表非空', doc.getElementById('cart-left-list').children.length > 0);
+  ok('右侧清单容器存在', !!doc.getElementById('cart-right-list'));
+
+  /* ---------- 3. 加入 2 个外接模组并分配引脚 ---------- */
+  const pick = ev(`(function(){
+      var ids = Object.keys(moduleLibrary).filter(function(id){
+          var m = moduleLibrary[id];
+          return m && m.requirements && m.requirements.length >= 2 && !m.isOnboard && m.peak_current_ma;
+      });
+      // 固定带一块 spi_tft：第 6 节的 BLK 勾选断言依赖它（有可选电源脚 BLK）
+      if (ids.indexOf('spi_tft') !== -1) {
+          return ['spi_tft'].concat(ids.filter(function(i){ return i !== 'spi_tft'; })).slice(0, 2);
+      }
+      return ids.slice(0, 2);
+  })()`);
+  ok('找到两个可测模组', pick.length === 2, JSON.stringify(pick));
+  run(`cartSelectedModules = ${JSON.stringify(pick)}.map(function(id){ return { id: id, name: moduleLibrary[id].name, priority: 50, overrides: {}, isOnboard: false, failed: false }; });`);
+  run('renderCartRightList(); confirmCartAndAllocate();');
+  await sleep(250);
+  ok('分配后画布有 2 个模组', ev('activeModules.length') === 2, '实际 ' + ev('activeModules.length'));
+  ok('已分配引脚', ev('Object.values(activeModules[0].connections || {}).filter(Boolean).length') > 0);
+  ok('画布 SVG 已渲染', doc.querySelectorAll('#wiring-svg g').length > 10, 'g 元素 ' + doc.querySelectorAll('#wiring-svg g').length);
+  ok('功耗文案已刷新', /mA/.test(doc.getElementById('power-text').textContent));
+  checkHandlers(doc, '模组注入后');
+
+  /* ---------- 4. 画布模组「微调参数」弹窗 ---------- */
+  run('openEditPanel(0)');
+  await sleep(60);
+  const editModal = doc.getElementById('module-params-modal');
+  ok('微调弹窗可打开', win.getComputedStyle(editModal).display !== 'none');
+  ok('微调弹窗显示引脚列表', doc.getElementById('mp-pin-list').children.length > 0,
+     '子项 ' + doc.getElementById('mp-pin-list').children.length);
+  const curVal = doc.getElementById('mp-current').value;
+  ok('电流输入框有值', !!curVal, '空值');
+  run('saveModuleParams()');
+  await sleep(60);
+  ok('保存后弹窗关闭', win.getComputedStyle(editModal).display === 'none');
+  ok('保存后电流写入 overrides', Number(ev('activeModules[0].overrides.current')) === Number(curVal),
+     '输入 ' + curVal + ' 实际 ' + ev('activeModules[0].overrides.current'));
+  ok('保存后编辑态已清空', ev('editingModuleIndex') === -1, 'editingModuleIndex=' + ev('editingModuleIndex'));
+
+  /* ---------- 5. 购物车项「微调参数」弹窗 ---------- */
+  run('openCartModal()');
+  run('openCartEditModal(cartSelectedModules[0].id)');
+  await sleep(60);
+  const cartEdit = doc.getElementById('module-params-modal');
+  ok('购物车微调弹窗可打开', win.getComputedStyle(cartEdit).display !== 'none');
+  ok('购物车微调弹窗层级高于购物窗', Number(win.getComputedStyle(cartEdit).zIndex) > 1000,
+     'zIndex=' + win.getComputedStyle(cartEdit).zIndex);
+  ok('购物车微调弹窗有模组名', doc.getElementById('mp-name').textContent.trim().length > 0);
+  doc.getElementById('mp-current').value = '88';
+  run('saveCartModuleParams()');
+  await sleep(60);
+  ok('购物车微调保存后关闭', win.getComputedStyle(cartEdit).display === 'none');
+  ok('购物车微调写入 88', Number(ev('cartSelectedModules[0].overrides.current')) === 88,
+     '实际 ' + ev('cartSelectedModules[0].overrides.current'));
+  run('closeCartModal()');
+
+  /* ---------- 6. 引脚勾选弹窗 ---------- */
+  run('openPinEditModal(0)');
+  await sleep(60);
+  ok('引脚弹窗可打开', win.getComputedStyle(doc.getElementById('pin-edit-modal')).display !== 'none');
+  ok('引脚弹窗列出引线', doc.getElementById('pin-edit-list').children.length > 0);
+  // 电源脚分级：VCC/GND 锁死，BLK 必须可取消（7 针屏没有这根脚）
+  const peBoxes = {};
+  doc.querySelectorAll('#pin-edit-list input[type="checkbox"]').forEach(cb => { peBoxes[cb.dataset.pinSig] = cb; });
+  ok('VCC/GND 锁定为必接', peBoxes['VCC'] && peBoxes['VCC'].disabled && peBoxes['GND'] && peBoxes['GND'].disabled);
+  ok('BLK 可取消勾选（不再锁死）', peBoxes['BLK'] && !peBoxes['BLK'].disabled && peBoxes['BLK'].checked);
+  ok('BLK 行有悬停说明', (peBoxes['BLK'] && /7 针|PWM/.test(peBoxes['BLK'].closest('label').title || '')));
+  // 取消 BLK → 确定 → 不再出现在接线清单里；重开弹窗保持取消
+  peBoxes['BLK'].checked = false;
+  win.eval('executePinEdit()');
+  await sleep(60);
+  ok('取消 BLK 后弹窗关闭并生效', win.getComputedStyle(doc.getElementById('pin-edit-modal')).display === 'none');
+  ok('取消 BLK 写入 enabledPins', ev('activeModules[0].enabledPins.BLK') === false);
+  ok('画布不再画 BLK(3.3V)', !doc.getElementById('wiring-svg').textContent.includes('BLK(3.3V)'));
+  run('openPinEditModal(0)');
+  await sleep(60);
+  const blkAgain = doc.querySelector('#pin-edit-list input[data-pin-sig="BLK"]');
+  ok('重开弹窗 BLK 仍为取消态', blkAgain && !blkAgain.checked);
+  blkAgain.checked = true; // 还原，别影响后面的用例
+  win.eval('executePinEdit()');
+  await sleep(50);
+  run('closePinEditModal()');
+  await sleep(40);
+  ok('引脚弹窗可关闭', win.getComputedStyle(doc.getElementById('pin-edit-modal')).display === 'none');
+
+  /* ---------- 7. 智能接线面板 ---------- */
+  run('toggleSmartPanel()');
+  await sleep(150);
+  ok('智能接线面板可打开', win.getComputedStyle(doc.getElementById('smart-panel')).display !== 'none');
+  const cards = doc.querySelectorAll('#smart-panel-body .smart-card');
+  ok('智能接线生成方案卡', cards.length > 0, '卡片数 ' + cards.length);
+  ok('源码未导入时不显示源码卡', doc.querySelectorAll('.smart-card--source').length === 0);
+  if (cards.length > 1) {
+    const sigBefore = JSON.stringify(ev('activeModules.map(function(m){return m.connections;})'));
+    cards[1].click();
+    await sleep(180);
+    const sigAfter = JSON.stringify(ev('activeModules.map(function(m){return m.connections;})'));
+    info('点击第 2 张方案卡：接法' + (sigBefore === sigAfter ? '未变' : '已变'));
+  }
+  run('toggleSmartPanel()');
+  await sleep(80);
+  ok('智能接线面板可关闭', win.getComputedStyle(doc.getElementById('smart-panel')).display === 'none');
+
+  /* ---------- 8. 诊断面板 ---------- */
+  run('toggleDiagnosticsPanel()');
+  await sleep(150);
+  ok('自检面板可打开', win.getComputedStyle(doc.getElementById('diag-panel')).display !== 'none');
+
+  /* 提示文案必须「一眼能懂」：结论 ≤ 22 字 + 一句做法，原理只放 hover
+     以前 W2/W5 一条上百字，面板一开就是密密麻麻一片，这里用断言钉住 */
+  const sample = [
+    { pin: 45, module: '屏幕', signal: 'CS' },
+    { pin: 19, module: '屏幕', signal: 'DC' },
+    { pin: 43, module: '麦克风', signal: 'SCK' },
+    { pin: 0, module: '按键', signal: 'KEY' }
+  ];
+  const rep = run(`runHardwareDiagnostics(${JSON.stringify(sample)}, boardConfig.boardName)`);
+  const allTips = [...(rep.warnings || []), ...(rep.errors || [])];
+  ok('样例接法能产出提示', allTips.length >= 3, '实际 ' + allTips.length);
+  const verbose = allTips.filter(x => (x.message || '').length > 22 || !x.hint || !x.tip);
+  ok('每条提示都是「短结论 + 一句做法 + 悬停全文」', verbose.length === 0,
+     verbose.map(x => `${x.code}:${(x.message || '').slice(0, 12)}…`).join(' / '));
+
+  run('toggleDiagnosticsPanel()');
+  await sleep(80);
+  ok('自检面板可关闭', win.getComputedStyle(doc.getElementById('diag-panel')).display === 'none');
+
+  /* ---------- 9. 代码骨架弹窗 ---------- */
+  run('openCodeGeneratorModal()');
+  await sleep(80);
+  ok('代码骨架弹窗可打开', win.getComputedStyle(doc.getElementById('code-generator-modal')).display !== 'none');
+  const codeText = doc.getElementById('code-preview-modal').textContent || '';
+  ok('代码骨架有内容', codeText.length > 40, '长度 ' + codeText.length);
+
+  /* 源码模式：必须沿用源码原宏名，贴回小智才能编译
+     （以前用「模组名_信号」自造名字，小智的 board.cc 根本认不到） */
+  run('window._sourceMeta={owner:"78",repo:"xiaozhi-esp32",dir:"main/boards/bread-compact-wifi-s3cam",commit:"abc1234"};'
+    + 'currentMappingData=[{varName:"DISPLAY_MOSI_GPIO",sourcePinNum:"20",targetPin:"19",physicalModule:"(未接)",physicalSignal:"",lineIndex:3},'
+    + '{varName:"DISPLAY_CS_GPIO",sourcePinNum:"45",targetPin:"45",physicalModule:"(未接)",physicalSignal:"",lineIndex:4}];');
+  const snip = run('generatePinConfigCode()');
+  ok('源码模式沿用原宏名', snip.includes('#define DISPLAY_MOSI_GPIO') && snip.includes('#define DISPLAY_CS_GPIO'), snip.slice(0, 60));
+  ok('源码模式不再自造宏名', !snip.includes('SPI_TFT') && !snip.includes('_MOSI  '), '');
+  ok('源码模式注明不要整体覆盖', snip.includes('整体覆盖'));
+  ok('未接线的宏保持源码原值', /#define DISPLAY_MOSI_GPIO\s+20/.test(snip),
+     (snip.split('\n').find(l => l.includes('DISPLAY_MOSI')) || '').trim());
+  ok('源码模式不塞 main.ino', !snip.includes('void setup'));
+  run('window._sourceMeta=null; currentMappingData=[];');
+
+  /* 中文模组名清洗后不能变成以数字开头的非法标识符（"1.69寸屏" → 以前是 1_69__） */
+  const ident = run("toMacroIdent('1.69寸屏')");
+  ok('中文模组名能洗成合法宏名', /^[A-Z_][A-Z0-9_]*$/.test(ident), '得到 ' + ident);
+
+  run('openCodeGeneratorModal()');
+  await sleep(60);
+  ok('通用模式仍输出 main.ino', (doc.getElementById('code-preview-modal').textContent || '').includes('void setup'));
+  run('closeCodeGeneratorModal()');
+  await sleep(40);
+  run('closeCodeGeneratorModal()');
+  await sleep(40);
+  ok('代码骨架可关闭', win.getComputedStyle(doc.getElementById('code-generator-modal')).display === 'none');
+
+  /* ---------- 10. 移除模组 → 引脚释放 ---------- */
+  const usedPins = ev('Object.values(activeModules[0].connections).filter(function(v){return v && v!=="dropped";}).map(Number)');
+  const cntBefore = ev('activeModules.length');
+  await run('removeActiveModule(0, { skipConfirm: true })');
+  await sleep(250);
+  ok('移除后模组数量减一', ev('activeModules.length') === cntBefore - 1, `${cntBefore} → ${ev('activeModules.length')}`);
+  const stillUsed = usedPins.filter(p => ev(`pinsState[${p}] && pinsState[${p}].state === 'used'`));
+  ok('移除后原引脚已释放', stillUsed.length === 0, '仍占用 ' + stillUsed.join(','));
+  ok('左侧卡片同步刷新', doc.querySelectorAll('#active-modules-list .module-card').length === ev('activeModules.length'));
+  checkHandlers(doc, '移除后');
+
+  /* ---------- 12. 真实点击（走 data-act 事件委托，不是直接调函数） ---------- */
+  const clickSel = sel => { const el = doc.querySelector(sel); if (!el) return false; el.click(); return true; };
+  const shown = sel => { const el = doc.querySelector(sel); return !!el && win.getComputedStyle(el).display !== 'none'; };
+
+  run('toggleSmartPanel(false)');
+  await sleep(60);
+  ok('「智能接线」按钮存在', clickSel('#smart-wiring-btn'));
+  await sleep(160);
+  ok('  → 点一下面板打开', shown('#smart-panel'));
+  clickSel('#smart-wiring-btn');
+  await sleep(140);
+  ok('  → 再点一下面板收起', !shown('#smart-panel'));
+
+  ok('模组卡「引脚」按钮存在', clickSel('.module-card [data-act="openPinEditModal"]'));
+  await sleep(100);
+  ok('  → 引脚弹窗打开', shown('#pin-edit-modal'));
+  clickSel('#pin-edit-modal .modal-close-btn');
+  await sleep(90);
+  ok('  → 关闭键生效', !shown('#pin-edit-modal'));
+
+  ok('「生成代码骨架」按钮存在', clickSel('#btn-code-skeleton'));
+  await sleep(100);
+  ok('  → 代码弹窗打开', shown('#code-generator-modal'));
+  clickSel('#code-generator-modal .modal-close-btn');
+  await sleep(90);
+  ok('  → 关闭键生效', !shown('#code-generator-modal'));
+
+  const scale0 = ev('currentScale');
+  clickSel('.zoom-btn[data-arg="in"]');
+  /* 缩放带过渡动画，固定 sleep 会在动画中途读数撞出偶发失败，改成轮询到数值稳定 */
+  await waitFor(() => ev('currentScale') > scale0 + 0.01);
+  ok('缩放按钮改变了比例', ev('currentScale') > scale0, `${scale0} → ${ev('currentScale')}`);
+  clickSel('.zoom-reset');
+  // 复位是带过渡动画的，固定 sleep 偶尔会撞在动画中间（实测出现过 0.74），改成轮询
+  await waitFor(() => Math.abs(ev('currentScale') - 1) < 0.001);
+  ok('复位按钮把比例归到 100%', Math.abs(ev('currentScale') - 1) < 0.001, '实测 ' + ev('currentScale'));
+
+  /* 删除是二次确认流程：取消 → 不删；确认 → 真删。
+     两个方向都要测，否则按钮整体失灵时「取消后仍在」也会通过（历史踩过这个坑） */
+  const cntKeep = ev('activeModules.length');
+  ok('模组卡删除键存在', clickSel('#active-modules-list .module-card-del'));
+  await sleep(150);
+  ok('  → 弹出二次确认', !!doc.querySelector('.ui-dialog'));
+  const cancelBtn = doc.querySelector('.ui-dialog [data-dialog-act="cancel"]');
+  ok('  → 确认框有取消键', !!cancelBtn);
+  if (cancelBtn) cancelBtn.click();
+  await sleep(200);
+  ok('  → 点取消后弹窗关闭', !doc.querySelector('.ui-dialog'));
+  ok('  → 取消后模组仍在', ev('activeModules.length') === cntKeep, `剩 ${ev('activeModules.length')}`);
+
+  ok('  → 再点删除键', clickSel('#active-modules-list .module-card-del'));
+  await sleep(150);
+  const okBtn = doc.querySelector('.ui-dialog [data-dialog-act="ok"]');
+  ok('  → 确认框有确认键', !!okBtn);
+  if (okBtn) okBtn.click();
+  await sleep(250);
+  ok('  → 点确认后弹窗关闭', !doc.querySelector('.ui-dialog'));
+  ok('  → 点确认真的删掉了', ev('activeModules.length') === cntKeep - 1, `${cntKeep} → ${ev('activeModules.length')}`);
+
+  /* uiAlert 只有「知道了」，点它必须能关掉 */
+  win.uiAlert({ title: '测试提示', body: '这段文字只是回归测试用' });
+  await sleep(120);
+  ok('uiAlert 能弹出', !!doc.querySelector('.ui-dialog'));
+  ok('uiAlert 按钮文案是「知道了」', (doc.querySelector('.ui-dialog [data-dialog-act="ok"]') || {}).textContent === '知道了');
+  const knowBtn = doc.querySelector('.ui-dialog [data-dialog-act="ok"]');
+  if (knowBtn) knowBtn.click();
+  await sleep(220);
+  ok('点「知道了」能关闭', !doc.querySelector('.ui-dialog'));
+
+  /* 购物窗的关闭键、清空键等也都是委托动作 */
+  clickSel('#btn-add-cart, [data-act="openCartModal"]');
+  await sleep(120);
+  ok('「添加模组」按钮可打开购物窗', shown('#cart-modal'));
+  clickSel('#cart-modal .modal-close-btn');
+  await sleep(90);
+  ok('  → 购物窗关闭键生效', !shown('#cart-modal'));
+
+  /* ---------- 12.5 换主板必须清掉源码适配表 ---------- */
+  /* 不清的话「生成代码骨架」会把新板的接法套进旧源码的宏名里：
+     贴回源码编译能过、脚却全错，是最难查的那种错 */
+  run('window._sourceMeta={owner:"78",repo:"xiaozhi-esp32",dir:"main/boards/x",commit:"abc"};'
+    + 'currentMappingData=[{varName:"DISPLAY_CLK_GPIO",sourcePinNum:"19",targetPin:"12",physicalModule:"(未接)",physicalSignal:"",lineIndex:1}];');
+  run('loadBoard("ESP32-S3 N16R8 CAM")');
+  await sleep(200);
+  ok('换主板后源码适配表清空',
+     ev('window._sourceMeta') === null && ev('currentMappingData.length') === 0,
+     `meta=${ev('window._sourceMeta')} map=${ev('currentMappingData.length')}`);
+  ok('换主板后骨架不再沿用旧源码宏名', !run('generatePinConfigCode()').includes('DISPLAY_CLK_GPIO'),
+     run('generatePinConfigCode()').slice(0, 80));
+
+  /* ---------- 12.6 源码列表按当前主板显示对应官方板型 ---------- */
+  /* 以前 xiaozhi 条目的 board 写死成 'ESP32-S3 N16R8 CAM'，换到 WROOM 就显示「不适用」，
+     用户只能自己猜该解析哪个目录；而目录又靠板名里的 s3/wroom 关键词猜，
+     WROOM 会拼出 ['s3','wroom']，小智仓库里没这种目录 → 退回全量 config.h 混读，接法必错 */
+  const bd = ev('globalBoards');
+  ok('内置板型都绑定了官方板型目录',
+     Object.keys(bd).every(k => !!(bd[k] && bd[k].xiaozhi && bd[k].xiaozhi.dir)),
+     Object.keys(bd).map(k => k + '=' + (bd[k].xiaozhi ? bd[k].xiaozhi.dir : 'null')).join(' | '));
+
+  run('openCodeAdapter(); switchParserMode("online")');
+  await sleep(160);
+  const fw1 = doc.getElementById('online-fw-list').textContent;
+  ok('CAM 板列出 s3cam 目录', fw1.includes('bread-compact-wifi-s3cam'), fw1.slice(0, 80));
+  ok('CAM 板标记虾哥官方', fw1.includes('虾哥官方'), '');
+  ok('CAM 板不串到 lcd 板型', !fw1.includes('bread-compact-wifi-lcd'), '');
+
+  run('closeCodeAdapter(); loadBoard("ESP32-S3-WROOM-1 N16R8"); openCodeAdapter(); switchParserMode("online")');
+  await sleep(200);
+  const fw2 = doc.getElementById('online-fw-list').textContent;
+  ok('WROOM 板列出 lcd 目录', fw2.includes('bread-compact-wifi-lcd'), fw2.slice(0, 80));
+  ok('WROOM 板不串到 s3cam', !fw2.includes('bread-compact-wifi-s3cam'), '');
+  ok('换板后顶部提示跟着换', fw2.includes('ESP32-S3-WROOM-1 N16R8'), '');
+  run('closeCodeAdapter()');
+
+  /* ---------- 12.7 板名带固件板型 id + 源码下载按钮 ---------- */
+  /* 以前板名只有模组型号（ESP32-S3-WROOM-1 N16R8），拿这个名字去 GitHub 搜不到任何东西；
+     虾哥那边的名字是 board id（bread-compact-wifi-lcd），两边并排写才能对上 */
+  ok('板名显示函数拼出两种名字',
+     ev('boardDisplayName(globalBoards["ESP32-S3-WROOM-1 N16R8"])') === 'ESP32-S3-WROOM-1 N16R8 · 小智 bread-compact-wifi-lcd',
+     ev('boardDisplayName(globalBoards["ESP32-S3-WROOM-1 N16R8"])'));
+  /* 下拉框 300px 放不下板型 id（会截成 bread-con…），所以 id 放在下拉框下面单独一行 */
+  const fwHint = doc.getElementById('board-fw-hint');
+  ok('下拉框下方显示小智库型',
+     fwHint && fwHint.style.display !== 'none' && fwHint.textContent.includes('bread-compact-wifi-lcd'),
+     fwHint ? fwHint.textContent.slice(0, 60) : '元素不存在');
+  ok('小智库型可点击直达 GitHub', !!doc.querySelector('#board-fw-hint a[href*="bread-compact-wifi-lcd"]'));
+
+  run('try{ window._sourceMeta={owner:"78",repo:"xiaozhi-esp32",dir:"main/boards/bread-compact-wifi-lcd",commit:"abc1234"};'
+    + 'currentProjectName="测试工程"; showParserResult(); }catch(e){ window.__srErr=String(e); }');
+  await sleep(120);
+  const srcRow = doc.getElementById('parser-file-name').textContent;
+  ok('源码行显示板型目录', srcRow.includes('main/boards/bread-compact-wifi-lcd/config.h'), srcRow.slice(0, 90));
+  ok('源码行有下载 config.h 按钮', !!doc.querySelector('[data-act="downloadSourceConfig"]'),
+     'showParserResult 报错：' + (ev('window.__srErr') || '无'));
+  ok('源码行有整套源码下载按钮', !!doc.querySelector('[data-act="downloadSourceZip"]'));
+  ok('两个下载动作都是真函数',
+     ev('typeof downloadSourceConfig') === 'function' && ev('typeof downloadSourceZip') === 'function');
+  run('window._sourceMeta = null; closeCodeAdapter()');
+
+  /* ---------- 12.8 诊断新规则 + 弹窗 Esc + 预算显示 ---------- */
+  // 同型号 I2C 撞地址：两块 AHT20 默认都是 0x38，接同一条总线必然读不出
+  run(`(function(){
+      var a = { id:'aht20', name:'AHT20', interface:'I2C', connections:{ SDA:'8', SCL:'9' } };
+      var b = { id:'aht20', name:'AHT20', interface:'I2C', connections:{ SDA:'8', SCL:'9' } };
+      window.__keep = activeModules.slice();
+      activeModules = [a, b];
+  })()`);
+  const i2cDup = ev('checkI2cAddressConflict(buildDiagConnections()).length');
+  ok('同型号 I2C 重复 → 报地址冲突', i2cDup === 1, '命中 ' + i2cDup + ' 条');
+  ok('地址冲突能指到具体引脚', Number(ev('checkI2cAddressConflict(buildDiagConnections())[0].pin')) > 0);
+  run('activeModules = window.__keep; window.__keep = null');
+
+  // W8：WROOM 排针上没有 5V，接 5V 模组必须提示外部供电
+  run(`(function(){
+      window.__keep = activeModules.slice();
+      activeModules = [{ id:'sg90_servo', name:'SG90', interface:'PWM', connections:{ PWM:'12' } }];
+  })()`);
+  const fiveV = ev('checkFiveVoltSupply("ESP32-S3-WROOM-1 N16R8").length');
+  ok('本板无 5V 输出时提示外部供电', fiveV === 1, '命中 ' + fiveV + ' 条');
+  run('activeModules = window.__keep; window.__keep = null');
+
+  // W7：总电流超预算要变成一条正式诊断（不再只是侧栏变红）
+  run(`(function(){
+      window.__keep = activeModules.slice();
+      window.__keepCfg = boardConfig;
+      activeModules = [{ id:'spi_tft', name:'TFT', interface:'SPI', overrides:{ current: 900 }, connections:{} }];
+  })()`);
+  const budget = ev('checkPowerBudget().length');
+  ok('总电流超预算进入诊断列表', budget === 1, '命中 ' + budget + ' 条');
+  ok('超预算条目没有引脚也能给出结论',
+     ev('checkPowerBudget()[0].message.includes("超出")'), ev('checkPowerBudget()[0].message'));
+  run('activeModules = window.__keep; boardConfig = window.__keepCfg; window.__keep = null; window.__keepCfg = null; updatePowerBudget()');
+
+  // W6：手动把默认高电平的信号拖到「启动需要低电平」的脚上 → 应与引擎过滤口径一致地报出来
+  const strapHit = ev(`(function(){
+      var lib = moduleLibrary['relay_low_trigger'];
+      var bak = lib.requirements[0].default_state;
+      lib.requirements[0].default_state = 'HIGH';
+      var n = checkStrappingLevel([{ pin:45, signal:'IN', module:'继电器', modId:'relay_low_trigger', modKey:'relay#0' }], 'ESP32-S3-WROOM-1 N16R8').length;
+      lib.requirements[0].default_state = bak;
+      return n;
+  })()`);
+  ok('启动电平冲突能被诊断捕获', strapHit === 1, '命中 ' + strapHit);
+
+  // 预算百分比不能截断：130% 显示成 100% 就跟「刚好满载」一样了
+  run(`(function(){
+      window.__keep = activeModules.slice();
+      activeModules = [{ id:'spi_tft', name:'TFT', interface:'SPI', overrides:{ current: 2000 }, connections:{} }];
+      updatePowerBudget();
+  })()`);
+  const pwrText = doc.getElementById('power-text').textContent;
+  ok('超预算时显示真实百分比而非 100%', /\(\d{3,}%\)/.test(pwrText), pwrText);
+  run('activeModules = window.__keep; window.__keep = null; updatePowerBudget()');
+
+  // NC 候选：语义是「不接」，不该给分配 GPIO 的入口
+  run('openPinEditModal(0)');
+  await sleep(60);
+  ok('候选里不再出现 NC', !doc.querySelector('#pin-edit-list input[data-pin-sig="NC"]'));
+  // Esc 关闭静态弹窗（ui-dialog 自己在捕获阶段处理，这里测 HTML 里的 .modal-overlay）
+  doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await sleep(80);
+  ok('Esc 可关闭引脚弹窗', !shown('#pin-edit-modal'));
+
+  /* ---------- 13. 布局 ---------- */
+  const bodyOverflow = doc.body.scrollWidth - win.innerWidth;
+  ok('无横向溢出', bodyOverflow <= 2, '溢出 ' + bodyOverflow + 'px');
+  const sbW = Math.round(doc.querySelector('.sidebar').getBoundingClientRect().width);
+  ok('侧边栏宽度稳定（300 + 内边距 = 340）', sbW >= 300 && sbW <= 360, '实测 ' + sbW);
+  const canvasW = Math.round((doc.querySelector('.main-content') || {}).getBoundingClientRect().width || 0);
+  ok('画布区域占满剩余宽度', canvasW > 900, '实测 ' + canvasW);
+
+  lines.push('');
+  lines.push(fails === 0 ? '<span class="p">== 全部通过 ==</span>' : '<span class="f">== 失败 ' + fails + ' 项 ==</span>');
+  flush();
+  out.setAttribute('data-result', fails === 0 ? 'pass' : 'fail');
+}
+</script>
+</body>
+</html>
