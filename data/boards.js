@@ -27,11 +27,19 @@ window.globalBoards = {
         //   代价是失去这个 USB 口的串口/下载功能 —— 由诊断 W2 给告警，分配引擎用 usb 权重压到末位。
         // 1/2/13/14 在 WROOM 板上是空脚并已引出排针，实拍图可见 IO1/IO2/IO13/IO14，故不锁
         "fixedPins": [22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37],
+        // impact / note 是给诊断用的「实际后果」：
+        //   45 在 N16R8（ESP32-S3R8）上被 eFuse 固定 VDD_SPI=3.3V，启动电平不影响 flash，
+        //   所以虾哥把屏 RES 接到 45 是安全的；只有 1.8V flash 的裸片才必须上电为低。
+        //   0 是 BOOT 按键脚，上电瞬间被按住才会进下载模式，平时照接。
         "strappingPins": {
-            "0": { "required_level": "HIGH", "reason": "下载模式选择" },
-            "3": { "required_level": "HIGH", "reason": "JTAG 信号源选择" },
-            "45": { "required_level": "LOW", "reason": "VDD_SPI 电压选择" },
-            "46": { "required_level": "LOW", "reason": "启动模式选择" }
+            "0": { "required_level": "HIGH", "reason": "下载模式选择", "impact": "download",
+                   "note": "上电瞬间被按住（低电平）会进下载模式；松手再上电就正常启动，BOOT 按键本来就这么用" },
+            "3": { "required_level": "HIGH", "reason": "JTAG 信号源选择", "impact": "boot",
+                   "note": "只影响 JTAG 信号源，不影响正常启动" },
+            "45": { "required_level": "LOW", "reason": "VDD_SPI 电压选择", "impact": "none",
+                   "note": "N16R8 的 VDD_SPI 由 eFuse 固定 3.3V，GPIO45 的启动电平不影响 flash；屏 RES 接它没问题" },
+            "46": { "required_level": "LOW", "reason": "启动模式选择", "impact": "boot",
+                   "note": "上电为高会进下载模式，且与 GPIO0 的组合有非法状态" }
         },
         // N16R8 = ESP32-S3R8（VDD_SPI 3.3V），GPIO47/48 不是 1.8V 域；实拍图 GPIO48 直接驱动板载 WS2812
         "special_domains": {},
@@ -42,7 +50,10 @@ window.globalBoards = {
         // ESP32-S3 IO_MUX 上直连 SPI2(FSPI) 的脚：CS0=10 / MOSI(D)=11 / SCK=12 / MISO(Q)=13 / WP=14 / HD=15
         // 只有落在这组脚上才能跑到 80MHz；经 GPIO 矩阵路由时 SPI 时钟上限约 40MHz（驱动 ST7789 足够）
         "ioMuxSpi": { "CS": 10, "MOSI": 11, "SCK": 12, "MISO": 13, "WP": 14, "HD": 15 },
-        "defaultInterfaces": { "I2C": { "SDA": 8, "SCL": 9 }, "SPI": { "MOSI": 11, "MISO": 13, "SCK": 12, "CS": 10 }, "I2S_IN": { "BCLK": 15, "LRC": 16, "SD": 17 }, "I2S_OUT": { "BCLK": 15, "LRC": 16, "DIN": 17 }, "UART": { "TX": 43, "RX": 44 } },
+        // 音频按虾哥 bread-compact-wifi-lcd 的「单工」接法给默认值：mic 4/5/6，spk 7/15/16。
+        // 两套时钟必须写得不一样，引擎才会把它们当两条独立总线；写成一样（15/16）会被判成双工，
+        // 功放就会顺着麦克风写进总线的 BCLK/LRC 复用到 4/5 上 —— 源码里明明是 16/15/7。
+        "defaultInterfaces": { "I2C": { "SDA": 8, "SCL": 9 }, "SPI": { "MOSI": 11, "MISO": 13, "SCK": 12, "CS": 10 }, "I2S_IN": { "BCLK": 5, "LRC": 4, "SD": 6 }, "I2S_OUT": { "BCLK": 15, "LRC": 16, "DIN": 7 }, "UART": { "TX": 43, "RX": 44 } },
         "pinLayout": {
             // 实拍图 22 针/侧：左列 3V3→3V3→RST→IO4…IO14→5Vin→GND
             "left": ["3V3", "3V3", "RST", "4", "5", "6", "7", "15", "16", "17", "18", "8", "3", "46", "9", "10", "11", "12", "13", "14", "5VIN", "GND"],
@@ -82,11 +93,19 @@ window.globalBoards = {
         // 35/36/37：Octal PSRAM，动不得。
         // 19/20 = 原生 USB 的 D-/D+，芯片层面是普通 GPIO，不接 USB 时可以外接（代价见诊断 W2）。
         "fixedPins": [35, 36, 37], 
+        // impact / note 是给诊断用的「实际后果」：
+        //   45 在 N16R8（ESP32-S3R8）上被 eFuse 固定 VDD_SPI=3.3V，启动电平不影响 flash，
+        //   所以虾哥把屏 RES 接到 45 是安全的；只有 1.8V flash 的裸片才必须上电为低。
+        //   0 是 BOOT 按键脚，上电瞬间被按住才会进下载模式，平时照接。
         "strappingPins": {
-            "0": { "required_level": "HIGH", "reason": "下载模式选择" },
-            "3": { "required_level": "HIGH", "reason": "JTAG 信号源选择" },
-            "45": { "required_level": "LOW", "reason": "VDD_SPI 电压选择" },
-            "46": { "required_level": "LOW", "reason": "启动模式选择" }
+            "0": { "required_level": "HIGH", "reason": "下载模式选择", "impact": "download",
+                   "note": "上电瞬间被按住（低电平）会进下载模式；松手再上电就正常启动，BOOT 按键本来就这么用" },
+            "3": { "required_level": "HIGH", "reason": "JTAG 信号源选择", "impact": "boot",
+                   "note": "只影响 JTAG 信号源，不影响正常启动" },
+            "45": { "required_level": "LOW", "reason": "VDD_SPI 电压选择", "impact": "none",
+                   "note": "N16R8 的 VDD_SPI 由 eFuse 固定 3.3V，GPIO45 的启动电平不影响 flash；屏 RES 接它没问题" },
+            "46": { "required_level": "LOW", "reason": "启动模式选择", "impact": "boot",
+                   "note": "上电为高会进下载模式，且与 GPIO0 的组合有非法状态" }
         },
         // N16R8 = ESP32-S3R8（VDD_SPI 3.3V），GPIO47/48 不是 1.8V 域
         "special_domains": {},
