@@ -115,7 +115,7 @@ function printWiringSheet() {
             const pp = (modData.power_pins || []).find(p => p.pin === name);
             if (pp) {
                 printed.add(name);
-                html += rowOf(pp.pin, `<strong>${pp.connect_to}</strong>`, pp.warning || '', ++pinNo);
+                html += rowOf(pp.label || pp.pin, `<strong>${pp.connect_to}</strong>`, pp.warning || '', ++pinNo);
                 return;
             }
             const pinNum = mod.connections[name];
@@ -138,7 +138,7 @@ function printWiringSheet() {
         (modData.power_pins || []).forEach(p => {
             if (printed.has(p.pin)) return;
             if (mod.enabledPins && mod.enabledPins[p.pin] === false) return; // 实物没这根脚（如 7 针屏无 BLK）
-            html += rowOf(p.pin, `<strong>${p.connect_to}</strong>`, p.warning || '', ++pinNo);
+            html += rowOf(p.label || p.pin, `<strong>${p.connect_to}</strong>`, p.warning || '', ++pinNo);
         });
 
         html += `</table></div>`;

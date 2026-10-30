@@ -725,10 +725,10 @@ function renderModules() {
 
                     if (isDangerousPower) {
                         item.style.backgroundColor = '#fff3f3'; item.style.borderColor = '#dc3545'; item.style.marginTop = '5px';
-                        item.innerHTML = `<strong style="color:#dc3545;">${p.pin}</strong> <span style="margin: 0 10px;">➡</span> <strong style="color:#dc3545;">${p.connect_to}</strong> <span style="font-size:11px; color:#dc3545; margin-left:10px;">(${displayWarning})</span>`;
+                        item.innerHTML = `<strong style="color:#dc3545;">${p.label || p.pin}</strong> <span style="margin: 0 10px;">➡</span> <strong style="color:#dc3545;">${p.connect_to}</strong> <span style="font-size:11px; color:#dc3545; margin-left:10px;">(${displayWarning})</span>`;
                     } else {
                         item.style.backgroundColor = '#f8f9fa';
-                        item.innerHTML = `<strong>${p.pin}</strong> <span style="margin: 0 10px;">➡</span> <strong style="color:var(--pin-fixed);">${p.connect_to}</strong> <span style="font-size:11px; color:#888; margin-left:10px;">(${displayWarning})</span>`;
+                        item.innerHTML = `<strong>${p.label || p.pin}</strong> <span style="margin: 0 10px;">➡</span> <strong style="color:var(--pin-fixed);">${p.connect_to}</strong> <span style="font-size:11px; color:#888; margin-left:10px;">(${displayWarning})</span>`;
                     }
                 }
                 wiringList.appendChild(item);
@@ -980,7 +980,7 @@ function renderPinEditList() {
 
     // 电源区（字典 power_pins + 接口族扩展电源）
     const pwrItems = new Map();
-    (modData.power_pins || []).forEach(pp => pwrItems.set(pp.pin, { target: pp.connect_to || inferPowerTarget(pp.pin, modData), defined: true }));
+    (modData.power_pins || []).forEach(pp => pwrItems.set(pp.pin, { target: pp.connect_to || inferPowerTarget(pp.pin, modData), defined: true, label: pp.label || '' }));
     (pool.power || []).forEach(s => { if (!pwrItems.has(s)) pwrItems.set(s, { target: inferPowerTarget(s, modData), defined: false }); });
 
     const rowHtml = (sig, checked, locked, tag, key, custom, title) => `
@@ -1015,7 +1015,11 @@ function renderPinEditList() {
         } else {
             hint = `可选电源脚：勾选后自动接 ${info.target} 轨`;
         }
-        html += rowHtml(`${sig} → ${info.target}`, checked, locked, info.defined ? '' : '扩展', sig, false, hint);
+        // 有丝印名时优先显示丝印（麦是 VDD、功放是 VIN），括号标注内部电源键名，避免核对时以为少了一个脚
+        const pwrName = (info.label && info.label !== sig)
+            ? `${info.label}<span style="font-size:10px; color:#94a3b8; margin-left:4px;">(${sig})</span>`
+            : sig;
+        html += rowHtml(`${pwrName} → ${info.target}`, checked, locked, info.defined ? '' : '扩展', sig, false, hint);
     });
     if ((modData.local_links || []).length) {
         html += '<div style="font-size:12px; color:#64748b; margin:12px 0 6px;">内部串联（勾选=模组内部已短接）</div>';

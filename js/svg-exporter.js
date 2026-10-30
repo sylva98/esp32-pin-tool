@@ -291,14 +291,16 @@ function buildModulePins(mod, libData, d) {
             if (mod.enabledPins && mod.enabledPins[pp.pin] === false) return;
             const gpioVal = liveConnEarly[pp.pin];
             const asGpio = gpioVal !== undefined && gpioVal !== 'dropped' && /^\d+$/.test(String(gpioVal));
-            let sigLabel = pp.pin;
+            // 画布上优先显示实物丝印名（麦的 VDD、功放的 VIN），内部仍按 VCC 键接电源轨
+            const disp = pp.label || pp.pin;
+            let sigLabel = disp;
             if (asGpio) {
                 // 电源/使能脚改接 GPIO（典型：BLK 做 PWM 调光）时标出真实脚号，
                 // 否则会出现「BLK(3.3V)」却连着 GPIO21 这种自相矛盾的显示
-                sigLabel = `${pp.pin} · IO${gpioVal}`;
+                sigLabel = `${disp} · IO${gpioVal}`;
             } else if (['VCC', '5V', '3.3V', '3V3', 'VIN', 'BLK'].includes(pp.pin.toUpperCase())) {
-                // 电源脚标签带上供电轨：VCC(3.3V) / BLK(3.3V)，GND 保持原样
-                sigLabel = `${pp.pin}(${pp.connect_to})`;
+                // 电源脚标签带上供电轨：VDD(3.3V) / VIN(5V) / BLK(3.3V)，GND 保持原样
+                sigLabel = `${disp}(${pp.connect_to})`;
             }
             otherPins.push({ signal: sigLabel, isPower: true, pin: resolvePin(pp.connect_to), rawSig: pp.pin });
         });
