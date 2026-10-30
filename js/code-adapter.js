@@ -789,6 +789,8 @@ function analyzeSourceCode() {
     let content = "";
     for (const path in currentProjectFiles) { content += currentProjectFiles[path] + '\n'; }
     const lines = content.split('\n'); currentMappingData = []; availableRealPins = [];
+    // 单工模式是否启用：启用后 #else 分支里的 AUDIO_I2S_GPIO_* 全是死代码，不该参与映射
+    const simplexActive = /^[ \t]*#define[ \t]+AUDIO_I2S_METHOD_SIMPLEX/m.test(content);
     activeModules.forEach(mod => {
         const modData = moduleLibrary[mod.id];
         for (const [signal, pinStr] of Object.entries(mod.connections)) {
@@ -809,7 +811,8 @@ function analyzeSourceCode() {
             let guessedModuleName = "❓ 未知外设"; let guessedSignal = "";
             // 先判定外设类型，再按类型解析信号——否则 "I2S_SCK"(麦克风) 和 "TFT_SCK"(SPI 屏)
             // 会被解析成同一个信号，"I2S_DIN"(功放) 也会被错当成麦克风的 SD
-            const isAmp = /SPK|AMP|MAX98357/.test(upperVarName);
+            // LAMP_GPIO 里含 "AMP"，会被误判成功放（xiaoZhi 的 s3cam 板就有这个演示灯），先排除掉
+            const isAmp = /SPK|MAX98357/.test(upperVarName) || (/AMP/.test(upperVarName) && !/LAMP/.test(upperVarName));
             const isMic = /MIC|INMP441/.test(upperVarName);
             const isDisp = /DISPLAY|TFT|LCD|ST7789|ILI9341|GC9A01/.test(upperVarName);
 
@@ -825,8 +828,11 @@ function analyzeSourceCode() {
                 if (upperVarName.includes('MOSI') || upperVarName.includes('SDA') || upperVarName.includes('SDIN') || upperVarName.includes('DATA')) guessedSignal = "MOSI";
                 else if (upperVarName.includes('SCK') || upperVarName.includes('SCL') || upperVarName.includes('CLK')) guessedSignal = "SCK";
                 else if (upperVarName.includes('CS')) guessedSignal = "CS";
-                else if (upperVarName.includes('DC') || upperVarName.includes('RS') || upperVarName.includes('A0')) guessedSignal = "DC";
+                // RST 判定必须排在 RS 之前：DISPLAY_RST_PIN 里含 "RS"，先判 RS 会把复位当成 DC 抓错脚
                 else if (upperVarName.includes('RST') || upperVarName.includes('RESET') || upperVarName.includes('RES')) guessedSignal = "RST";
+                else if (upperVarName.includes('DC') || upperVarName.includes('A0') || /(^|_)RS(_|$)/.test(upperVarName)) guessedSignal = "DC";
+                // 背光：只有用户把它改接成 GPIO（PWM 调光）时才在接线里，接 3.3V 常亮时不在 connections 里
+                else if (upperVarName.includes('BACKLIGHT') || upperVarName.includes('BLK') || /(^|_)BL(_|$)/.test(upperVarName)) guessedSignal = "BLK";
             }
             else if (isMic) {
                 // 麦克风丝印 SCK → 内部 BCLK；数据脚 SD/DIN/DOUT 统一按麦克风输出 SD 处理
@@ -847,15 +853,23 @@ function analyzeSourceCode() {
             }
 
             let physicalPinData = null;
-            
-            if (isAmp) {
-                physicalPinData = availableRealPins.find(p => /功放|MAX98357/.test(p.moduleName) && p.signal.includes(guessedSignal));
-            } else if (isMic) {
-                physicalPinData = availableRealPins.find(p => /麦克风|INMP441/.test(p.moduleName) && p.signal.includes(guessedSignal));
-            } else if (isDisp) {
-                physicalPinData = availableRealPins.find(p => /屏|TFT|LCD/.test(p.moduleName) && p.signal.includes(guessedSignal));
-            } else {
-                physicalPinData = availableRealPins.find(p => p.signal === guessedSignal);
+            // 官方 config.h 里定义了 SIMPLEX 时，#else 那段 AUDIO_I2S_GPIO_* 是死代码。
+            // 把它们按麦克风/功放映射，等于把双工备用值改成单工值（DOUT 还会和 DIN 撞成同脚），
+            // 贴回源码既没用又添乱 → 原样保留，只标注「未启用」
+            const isDuplexBackup = simplexActive && /^AUDIO_I2S_GPIO_(WS|BCLK|DIN|DOUT)$/.test(upperVarName);
+
+            // guessedSignal 为空时必须直接放弃匹配：空串对 includes() 永远为真，
+            // 会把「没有任何信号特征」的宏（如 DISPLAY_BACKLIGHT_PIN）抓去想当然的第一个脚
+            if (!isDuplexBackup && guessedSignal) {
+                if (isAmp) {
+                    physicalPinData = availableRealPins.find(p => /功放|MAX98357/.test(p.moduleName) && p.signal === guessedSignal);
+                } else if (isMic) {
+                    physicalPinData = availableRealPins.find(p => /麦克风|INMP441/.test(p.moduleName) && p.signal === guessedSignal);
+                } else if (isDisp) {
+                    physicalPinData = availableRealPins.find(p => /屏|TFT|LCD/.test(p.moduleName) && p.signal === guessedSignal);
+                } else {
+                    physicalPinData = availableRealPins.find(p => p.signal === guessedSignal);
+                }
             }
 
             let status = 'keep'; let statusText = '⚪ 保持源码';
@@ -874,7 +888,8 @@ function analyzeSourceCode() {
             currentMappingData.push({
                 lineIndex: index, rawLine: line, varName: varName, sourcePinNum: sourcePinNum, targetPin: finalTargetPin,
                 guessedModuleName: guessedModuleName, physicalModule: physicalPinData ? physicalPinData.moduleName : "(未接)",
-                physicalSignal: physicalPinData ? physicalPinData.signal : "", status: status, statusText: statusText
+                physicalSignal: physicalPinData ? physicalPinData.signal : "", status: status, statusText: statusText,
+                inactive: isDuplexBackup
             });
         }
     });

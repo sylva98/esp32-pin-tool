@@ -1619,6 +1619,7 @@ function buildSourceDefineRows() {
             pin: String(pin),
             sourcePin: String(m.sourcePinNum),
             wired: !!wired,
+            inactive: !!m.inactive,
             lineIndex: (m.lineIndex === undefined ? 0 : m.lineIndex)
         };
     }).filter(r => r.varName);
@@ -1642,7 +1643,8 @@ function generateSourceConfigSnippet(rows) {
     code += ` * 不要用这份内容整体覆盖 config.h —— 原文件里还有\n`;
     code += ` * AUDIO_I2S_METHOD_SIMPLEX 这类非引脚宏，覆盖会丢。\n */\n\n`;
     rows.forEach(r => {
-        const mark = !r.wired ? '   // 未接线，保持源码原值'
+        const mark = r.inactive ? '   // 未启用（当前是单工模式），保持原值'
+            : !r.wired ? '   // 未接线，保持源码原值'
             : (r.pin !== r.sourcePin ? `   // 源码原值 ${r.sourcePin}` : '');
         code += `#define ${r.varName.padEnd(w)}  ${r.pin}${mark}\n`;
     });
