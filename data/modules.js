@@ -17,9 +17,11 @@ window.globalModuleData = {
     "spi_tft": {
         "name": "2.0寸 TFT IPS 彩屏 (8PIN)", "category": "显示类", "interface": "SPI", "signal_voltage": 3.3,
         "peak_current_ma": 120, "priority": 90,
-        // 实物排线按仕样书 1→8：GND / VCC / SCL / SDA / RES / DC / CS / BLK
-        //   丝印对照：SCL = SPI SCK、SDA = SPI MOSI（屏只写不读，没有 MISO/DOUT 脚）
-        //   RES = 复位（低有效）/ DC = 数据命令选择 / CS = 片选（低有效）/ BLK = 背光使能（高亮）
+        // 画布顺序按「背面丝印读序」排列：这块屏的丝印在背面，插在面包板上时看不见，
+        // 拔起来翻面核对时（BL 正读方向）从左到右是 BL→CS→DC→RST→SDA→SCL→VCC→GND，
+        // 画布顺序与其一致，翻面对照不用再脑内左右镜像。
+        // 丝印对照：SDA = SPI MOSI、SCL = SPI SCK（屏只写不读，没有 MISO/DOUT 脚）
+        //   RES = 复位（低有效）/ DC = 数据命令选择 / CS = 片选（低有效）/ BL = 背光使能（高亮，画布名 BLK）
         // 部分 7 针版本省掉 BLK（背光在模组内部直接常亮），此时把 BLK 那一路忽略即可
         "requirements": [
             { "signal": "SCK", "label": "SCL", "aliases": ["SCLK", "CLK"], "count": 1, "optional": false, "high_speed": true, "requires_output": true },
@@ -33,7 +35,7 @@ window.globalModuleData = {
             { "pin": "VCC", "connect_to": "3.3V", "warning": "仕样书标 3.3V，屏上一般不带 LDO，接 5V 会直接烧屏" },
             { "pin": "BLK", "connect_to": "3.3V", "warning": "背光使能，高电平点亮：接 3.3V = 常亮（仕样书写明默认点亮）；需 PWM 调光请改接 GPIO，背光电流超过 20mA 必须经三极管/MOS 驱动，不能直驱" }
         ],
-        "pinOrder": ["GND", "VCC", "SCK", "MOSI", "RST", "DC", "CS", "BLK"]
+        "pinOrder": ["BLK", "CS", "DC", "RST", "MOSI", "SCK", "VCC", "GND"]
     },
 
     // --- 传感器类 ---
@@ -154,19 +156,22 @@ window.globalModuleData = {
             { "from": "L/R", "to": "GND", "reason": "L/R 接地 = 左声道输出（接 VCC 则右声道）" }
         ],
         "power_pins": [
-            { "pin": "VCC", "connect_to": "3.3V", "warning": "输入 1.8~3.3V，接主板 3.3V" },
+            { "pin": "VCC", "label": "VDD", "connect_to": "3.3V", "warning": "输入 1.8~3.3V，接主板 3.3V" },
             { "pin": "GND", "connect_to": "GND", "warning": "接主板 GND" }
         ],
-        // 实物排针按丝印 1→6：L/R → GND → VDD → SD → SCK → WS（常见紫板 14mm 圆板，排针朝下从左往右）。
-        // VCC 是内部电源脚名（对应丝印 VDD）；BCLK/LRC 画布上按 label 显示为 SCK/WS
-        "pinOrder": ["L/R", "GND", "VCC", "SD", "BCLK", "LRC"]
+        // 实物为 14mm 圆形板，6 孔分两排（3+3），丝印在背面。按「SD/VDD/GND 正读」方向核对时：
+        //   上排（左→右）：L/R → WS → SCK；下排（左→右）：SD → VDD → GND
+        // 画布按两排连读顺序排列，翻面对照时与实物一一对应，不用再脑内镜像。
+        // 丝印 VDD 即画布的 VCC；SCK/WS 即 ESP32 侧 I2S 的 BCLK/LRC（画布按 label 显示 SCK/WS）
+        "pinOrder": ["L/R", "LRC", "BCLK", "SD", "VCC", "GND"]
     },
     "max98357a": {
         "name": "MAX98357A 功放 (I2S)", "category": "音频类", "interface": "I2S_OUT", "signal_voltage": 3.3,
         "peak_current_ma": 300, "priority": 85,
         // 实物 7 脚：VCC / GND / SD / GAIN / DIN / BCLK / LRC（没有 VIN 脚）
-        // 画布顺序按实物排针从左到右（Adafruit 与淘宝常见小板一致）：
-        //   LRC → BCLK → DIN → GAIN → SD → GND → VIN（VCC 即实物丝印 VIN）
+        // 画布顺序按「正面丝印读序」从左到右：LRC → BCLK → DIN → GAIN → SD → GND → VIN
+        // （这块板丝印在正面，插在面包板上直接可见，无需翻面；VCC 即实物丝印 VIN。
+        //   丝印分两行交错标注：上行 LRC/DIN/SD/VIN 标奇数位 1/3/5/7，下行 BCLK/GAIN/GND 标偶数位 2/4/6）
         "requirements": [
             { "signal": "BCLK", "count": 1, "optional": false, "high_speed": true, "requires_output": true, "aliases": ["SCK", "SCLK"] },
             { "signal": "LRC", "count": 1, "optional": false, "requires_output": true, "aliases": ["WS", "LRCLK"] },
@@ -177,7 +182,7 @@ window.globalModuleData = {
             { "from": "GAIN", "to": "GND", "reason": "GAIN 接地 = 15dB 最大增益（悬空 9dB / 接 VCC 3dB）" }
         ],
         "power_pins": [
-            { "pin": "VCC", "connect_to": "5V", "warning": "DC 2.5~5.5V，推荐 5V（4Ω 3.2W / 8Ω 1.8W）；超载必须接外部独立 5V" },
+            { "pin": "VCC", "label": "VIN", "connect_to": "5V", "warning": "DC 2.5~5.5V，推荐 5V（4Ω 3.2W / 8Ω 1.8W）；超载必须接外部独立 5V" },
             { "pin": "GND", "connect_to": "GND", "warning": "接主板 GND / 外部供电时须与主控共地" }
         ],
         "pinOrder": ["LRC", "BCLK", "DIN", "GAIN", "SD", "GND", "VCC"]
